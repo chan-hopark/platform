@@ -1,7 +1,7 @@
-// api/extract.js - Vercel 서버리스 함수
-import { chromium } from 'playwright';
+// api/extract.js - Vercel 서버리스 함수 (Cheerio + Node-fetch 사용)
+import * as cheerio from 'cheerio';
+import fetch from 'node-fetch';
 import fs from 'fs';
-import path from 'path';
 
 export default async function handler(req, res) {
   // CORS 헤더 설정
@@ -26,241 +26,164 @@ export default async function handler(req, res) {
 
   console.log('🚀 네이버 스마트스토어 데이터 추출 시작:', url);
 
-  let browser;
   try {
-    // Playwright 브라우저 설정 (Vercel 서버리스 환경에 최적화)
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
-      ]
-    });
-
-    console.log('✅ Playwright Chromium 브라우저 실행됨');
-
-    const page = await browser.newPage();
-    
-    // User-Agent 설정
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    
-    // 뷰포트 설정
-    await page.setViewport({ width: 1920, height: 1080 });
-
     const result = {
       product: {},
       reviews: [],
       qa: []
     };
 
+    // 1. 페이지 HTML 가져오기
     console.log('📄 페이지 로딩 중...');
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      }
+    });
 
-    // 1. 상품 기본 정보 추출
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // 2. 상품 기본 정보 추출
     console.log('🛍️ 상품 정보 추출 중...');
     try {
-      await page.waitForSelector('h1, [data-testid="product-title"], .product_title', { timeout: 10000 });
+      // 상품명 추출
+      const nameSelectors = [
+        'h1',
+        '[data-testid="product-title"]',
+        '.product_title',
+        '.productName',
+        '.prd_name',
+        '.product_name',
+        '.goods_name'
+      ];
       
-      result.product = await page.evaluate(() => {
-        const product = {};
-        
-        // 상품명 추출
-        const nameSelectors = [
-          'h1',
-          '[data-testid="product-title"]',
-          '.product_title',
-          '.productName',
-          '.prd_name'
-        ];
-        
-        for (const selector of nameSelectors) {
-          const element = document.querySelector(selector);
-          if (element && element.textContent.trim()) {
-            product.name = element.textContent.trim();
-            break;
-          }
+      for (const selector of nameSelectors) {
+        const element = $(selector).first();
+        if (element.length && element.text().trim()) {
+          result.product.name = element.text().trim();
+          break;
         }
+      }
 
-        // 가격 추출
-        const priceSelectors = [
-          '.price',
-          '.product_price',
-          '[data-testid="price"]',
-          '.prd_price',
-          '.sale_price'
-        ];
-        
-        for (const selector of priceSelectors) {
-          const element = document.querySelector(selector);
-          if (element && element.textContent.trim()) {
-            product.price = element.textContent.trim();
-            break;
-          }
+      // 가격 추출
+      const priceSelectors = [
+        '.price',
+        '.product_price',
+        '[data-testid="price"]',
+        '.prd_price',
+        '.sale_price',
+        '.goods_price',
+        '.price_value'
+      ];
+      
+      for (const selector of priceSelectors) {
+        const element = $(selector).first();
+        if (element.length && element.text().trim()) {
+          result.product.price = element.text().trim();
+          break;
         }
+      }
 
-        // 요약 설명 추출
-        const summarySelectors = [
-          '.product_summary',
-          '.prd_summary',
-          '.product_description',
-          '.prd_description'
-        ];
-        
-        for (const selector of summarySelectors) {
-          const element = document.querySelector(selector);
-          if (element && element.textContent.trim()) {
-            product.summary = element.textContent.trim();
-            break;
-          }
+      // 요약 설명 추출
+      const summarySelectors = [
+        '.product_summary',
+        '.prd_summary',
+        '.product_description',
+        '.prd_description',
+        '.goods_summary',
+        '.product_info'
+      ];
+      
+      for (const selector of summarySelectors) {
+        const element = $(selector).first();
+        if (element.length && element.text().trim()) {
+          result.product.summary = element.text().trim();
+          break;
         }
-
-        return product;
-      });
+      }
 
       console.log('✅ 상품 정보 추출 완료:', result.product.name);
     } catch (error) {
       console.log('⚠️ 상품 정보 추출 실패:', error.message);
     }
 
-    // 2. 리뷰 탭 클릭 및 데이터 추출
-    console.log('📝 리뷰 탭 클릭 중...');
+    // 3. 리뷰 데이터 추출 (페이지에 있는 리뷰들)
+    console.log('📝 리뷰 데이터 추출 중...');
     try {
-      // 리뷰 탭 찾기 및 클릭
-      const reviewTabSelectors = [
-        'a[href*="review"]',
-        'button[data-testid*="review"]',
-        '.tab_review',
-        '.review_tab',
-        'a:contains("리뷰")',
-        'button:contains("리뷰")'
+      const reviewSelectors = [
+        '.review_item',
+        '.review-list-item',
+        '[data-testid*="review"]',
+        '.review',
+        '.review_list .item'
       ];
 
-      let reviewTabClicked = false;
-      for (const selector of reviewTabSelectors) {
-        try {
-          await page.waitForSelector(selector, { timeout: 3000 });
-          await page.click(selector);
-          reviewTabClicked = true;
-          console.log('✅ 리뷰 탭 클릭 성공');
-          break;
-        } catch (e) {
-          continue;
-        }
-      }
-
-      if (reviewTabClicked) {
-        // 리뷰 정렬을 최신순으로 변경
-        try {
-          await page.waitForSelector('select, .sort_select, [data-testid*="sort"]', { timeout: 5000 });
-          await page.select('select, .sort_select, [data-testid*="sort"]', 'latest');
-          console.log('✅ 리뷰 정렬을 최신순으로 변경');
-        } catch (error) {
-          console.log('⚠️ 리뷰 정렬 변경 실패:', error.message);
-        }
-
-        // 리뷰 스크롤하여 추가 로드
-        console.log('📜 리뷰 스크롤하여 추가 로드 중...');
-        for (let i = 0; i < 5; i++) {
-          await page.evaluate(() => {
-            window.scrollTo(0, document.body.scrollHeight);
-          });
-          await page.waitForTimeout(2000);
-        }
-
-        // 리뷰 데이터 추출
-        result.reviews = await page.evaluate(() => {
-          const reviews = [];
-          const reviewElements = document.querySelectorAll('.review_item, .review-list-item, [data-testid*="review"]');
-          
-          reviewElements.forEach(element => {
-            try {
-              const author = element.querySelector('.review_author, .author, .reviewer_name')?.textContent?.trim() || '';
-              const rating = element.querySelector('.rating, .star_rating, .review_rating')?.textContent?.trim() || '';
-              const date = element.querySelector('.review_date, .date, .review_time')?.textContent?.trim() || '';
-              const content = element.querySelector('.review_content, .content, .review_text')?.textContent?.trim() || '';
-              
-              if (author || content) {
-                reviews.push({ author, rating, date, content });
-              }
-            } catch (e) {
-              // 개별 리뷰 추출 실패는 무시
+      for (const selector of reviewSelectors) {
+        $(selector).each((i, element) => {
+          try {
+            const $review = $(element);
+            const author = $review.find('.review_author, .author, .reviewer_name, .user_name').text().trim();
+            const rating = $review.find('.rating, .star_rating, .review_rating, .score').text().trim();
+            const date = $review.find('.review_date, .date, .review_time, .created_at').text().trim();
+            const content = $review.find('.review_content, .content, .review_text, .comment').text().trim();
+            
+            if (author || content) {
+              result.reviews.push({ author, rating, date, content });
             }
-          });
-          
-          return reviews;
+          } catch (e) {
+            // 개별 리뷰 추출 실패는 무시
+          }
         });
-
-        console.log(`✅ 리뷰 ${result.reviews.length}개 추출 완료`);
       }
+
+      console.log(`✅ 리뷰 ${result.reviews.length}개 추출 완료`);
     } catch (error) {
       console.log('⚠️ 리뷰 추출 실패:', error.message);
     }
 
-    // 3. Q&A 탭 클릭 및 데이터 추출
-    console.log('❓ Q&A 탭 클릭 중...');
+    // 4. Q&A 데이터 추출 (페이지에 있는 Q&A들)
+    console.log('❓ Q&A 데이터 추출 중...');
     try {
-      // Q&A 탭 찾기 및 클릭
-      const qaTabSelectors = [
-        'a[href*="qa"]',
-        'button[data-testid*="qa"]',
-        '.tab_qa',
-        '.qa_tab',
-        'a:contains("Q&A")',
-        'button:contains("Q&A")'
+      const qaSelectors = [
+        '.qa_item',
+        '.qa-list-item',
+        '[data-testid*="qa"]',
+        '.qa',
+        '.question_answer'
       ];
 
-      let qaTabClicked = false;
-      for (const selector of qaTabSelectors) {
-        try {
-          await page.waitForSelector(selector, { timeout: 3000 });
-          await page.click(selector);
-          qaTabClicked = true;
-          console.log('✅ Q&A 탭 클릭 성공');
-          break;
-        } catch (e) {
-          continue;
-        }
-      }
-
-      if (qaTabClicked) {
-        await page.waitForTimeout(2000);
-
-        // Q&A 데이터 추출
-        result.qa = await page.evaluate(() => {
-          const qaList = [];
-          const qaElements = document.querySelectorAll('.qa_item, .qa-list-item, [data-testid*="qa"]');
-          
-          qaElements.forEach(element => {
-            try {
-              const question = element.querySelector('.question, .qa_question, .q_text')?.textContent?.trim() || '';
-              const answer = element.querySelector('.answer, .qa_answer, .a_text')?.textContent?.trim() || '';
-              
-              if (question) {
-                qaList.push({ question, answer });
-              }
-            } catch (e) {
-              // 개별 Q&A 추출 실패는 무시
+      for (const selector of qaSelectors) {
+        $(selector).each((i, element) => {
+          try {
+            const $qa = $(element);
+            const question = $qa.find('.question, .qa_question, .q_text, .q_title').text().trim();
+            const answer = $qa.find('.answer, .qa_answer, .a_text, .a_content').text().trim();
+            
+            if (question) {
+              result.qa.push({ question, answer });
             }
-          });
-          
-          return qaList;
+          } catch (e) {
+            // 개별 Q&A 추출 실패는 무시
+          }
         });
-
-        console.log(`✅ Q&A ${result.qa.length}개 추출 완료`);
       }
+
+      console.log(`✅ Q&A ${result.qa.length}개 추출 완료`);
     } catch (error) {
       console.log('⚠️ Q&A 추출 실패:', error.message);
     }
 
-    // 4. JSON 파일로 저장 (Vercel에서는 /tmp 디렉토리 사용)
+    // 5. JSON 파일로 저장 (Vercel에서는 /tmp 디렉토리 사용)
     const jsonData = JSON.stringify(result, null, 2);
     const filePath = '/tmp/data.json';
     
@@ -289,9 +212,5 @@ export default async function handler(req, res) {
       success: false,
       error: error.message
     });
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
   }
 }

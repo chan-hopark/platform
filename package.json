@@ -9,7 +9,8 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "playwright": "^1.40.0"
+    "cheerio": "^1.0.0",
+    "node-fetch": "^3.3.2"
   },
   "engines": {
     "node": ">=18.x"
