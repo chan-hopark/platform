@@ -1,0 +1,8 @@
+/* index.css (Tailwind 사용 가정: tailwind.css를 빌드 결과로 import) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #333333;
+}
