@@ -1,6 +1,5 @@
 // api/extract.js - Vercel 서버리스 함수
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
@@ -29,12 +28,10 @@ export default async function handler(req, res) {
 
   let browser;
   try {
-    // Puppeteer 브라우저 설정 (Vercel 서버리스 환경에 최적화)
-    const puppeteerOptions = {
+    // Playwright 브라우저 설정 (Vercel 서버리스 환경에 최적화)
+    browser = await chromium.launch({
       headless: true,
-      executablePath: await chromium.executablePath(),
       args: [
-        ...chromium.args,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -46,10 +43,9 @@ export default async function handler(req, res) {
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor'
       ]
-    };
+    });
 
-    console.log('✅ Chromium 실행 경로:', puppeteerOptions.executablePath);
-    browser = await puppeteer.launch(puppeteerOptions);
+    console.log('✅ Playwright Chromium 브라우저 실행됨');
 
     const page = await browser.newPage();
     
