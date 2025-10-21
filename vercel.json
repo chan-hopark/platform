@@ -7,6 +7,18 @@
   },
   "env": {
     "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true"
-  }
+  },
+  "buildCommand": "echo 'No build step required'",
+  "outputDirectory": ".",
+  "routes": [
+    {
+      "src": "/",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    }
+  ]
 }
 
