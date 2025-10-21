@@ -1,5 +1,6 @@
 // api/extract.js - Vercel 서버리스 함수
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import fs from 'fs';
 import path from 'path';
 
@@ -28,10 +29,12 @@ export default async function handler(req, res) {
 
   let browser;
   try {
-    // Puppeteer 브라우저 설정 (Vercel 환경에 맞게)
+    // Puppeteer 브라우저 설정 (Vercel 서버리스 환경에 최적화)
     const puppeteerOptions = {
-      headless: true, // Vercel에서는 headless만 가능
+      headless: true,
+      executablePath: await chromium.executablePath(),
       args: [
+        ...chromium.args,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -45,36 +48,7 @@ export default async function handler(req, res) {
       ]
     };
 
-    // Vercel 환경에서 Chrome 경로 자동 감지
-    try {
-      const fs = await import('fs');
-      const path = await import('path');
-      
-      // 가능한 Chrome 경로들 확인
-      const possiblePaths = [
-        '/home/sbx_user1051/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome',
-        '/home/sbx_user1051/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome-linux64/chrome',
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium'
-      ];
-      
-      for (const chromePath of possiblePaths) {
-        if (fs.existsSync(chromePath)) {
-          puppeteerOptions.executablePath = chromePath;
-          console.log('✅ Chrome 경로 발견:', chromePath);
-          break;
-        }
-      }
-      
-      // 경로를 찾지 못한 경우 기본 설정 사용
-      if (!puppeteerOptions.executablePath) {
-        console.log('⚠️ Chrome 경로를 찾지 못함, 기본 설정 사용');
-      }
-    } catch (error) {
-      console.log('⚠️ Chrome 경로 감지 실패, 기본 설정 사용:', error.message);
-    }
-
+    console.log('✅ Chromium 실행 경로:', puppeteerOptions.executablePath);
     browser = await puppeteer.launch(puppeteerOptions);
 
     const page = await browser.newPage();

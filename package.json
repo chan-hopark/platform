@@ -6,12 +6,11 @@
   "scripts": {
     "dev": "vercel dev",
     "build": "echo 'No build step required'",
-    "start": "node server.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "start": "node server.js"
   },
   "dependencies": {
-    "puppeteer": "^21.5.2",
-    "puppeteer-core": "^21.5.2"
+    "puppeteer-core": "^21.5.2",
+    "@sparticuz/chromium": "^121.0.0"
   },
   "engines": {
     "node": ">=18.x"
