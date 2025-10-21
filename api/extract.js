@@ -31,6 +31,7 @@ export default async function handler(req, res) {
     // Puppeteer 브라우저 설정 (Vercel 환경에 맞게)
     browser = await puppeteer.launch({
       headless: true, // Vercel에서는 headless만 가능
+      executablePath: '/home/sbx_user1051/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -39,7 +40,9 @@ export default async function handler(req, res) {
         '--no-first-run',
         '--no-zygote',
         '--single-process',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor'
       ]
     });
 
