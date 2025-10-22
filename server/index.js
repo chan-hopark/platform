@@ -1,8 +1,7 @@
 // server/index.js
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
+import puppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,6 +14,8 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // 네이버 스마트스토어 상품 데이터 추출 API
 app.post('/api/extract', async (req, res) => {
+  let browser = null;
+  
   try {
     console.log('🚀 API 요청 시작');
     console.log('📝 요청 본문:', req.body);
@@ -33,102 +34,136 @@ app.post('/api/extract', async (req, res) => {
     
     console.log('🔍 추출 요청 받음:', url);
     
-    // Axios로 HTML 가져오기
-    console.log('📡 HTTP 요청 시작...');
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.8,en-US;q=0.5,en;q=0.3',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      },
-      timeout: 30000
+    // Railway 환경에 최적화된 Puppeteer 설정
+    console.log('🌐 Puppeteer 브라우저 실행 중...');
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--memory-pressure-off',
+        '--max_old_space_size=2048',
+        '--single-process',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
+      ],
+      timeout: 60000
     });
     
-    console.log('✅ HTML 응답 받음, 크기:', response.data.length);
+    console.log('✅ 브라우저 실행 성공');
     
-    // Cheerio로 HTML 파싱
-    const $ = cheerio.load(response.data);
-    console.log('🔍 HTML 파싱 완료');
+    const page = await browser.newPage();
+    console.log('📄 새 페이지 생성');
     
-    // 상품 정보 추출
-    const extractedData = {
-      product: {},
-      reviews: [],
-      qa: []
-    };
+    // User-Agent 설정
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    console.log('🔧 User-Agent 설정 완료');
     
-    // 상품명 추출
-    const nameSelectors = [
-      'h1',
-      '[data-testid="product-title"]',
-      '.product_title',
-      '.productName',
-      '.goods_name',
-      '.product_name',
-      '.product_title_text',
-      '.product_name_text'
-    ];
+    // 뷰포트 설정
+    await page.setViewport({ width: 1920, height: 1080 });
+    console.log('📱 뷰포트 설정 완료');
     
-    for (const selector of nameSelectors) {
-      const element = $(selector).first();
-      if (element.length && element.text().trim()) {
-        extractedData.product.name = element.text().trim();
-        console.log('✅ 상품명 추출:', extractedData.product.name);
-        break;
+    // 페이지 로딩 (동적 렌더링 대기)
+    console.log('📄 페이지 로딩 시작:', url);
+    await page.goto(url, { 
+      waitUntil: 'networkidle0', 
+      timeout: 60000 
+    });
+    console.log('✅ 페이지 로딩 완료');
+    
+    // 추가 대기 시간 (동적 콘텐츠 로딩)
+    console.log('⏳ 동적 콘텐츠 로딩 대기 중...');
+    await page.waitForTimeout(3000);
+    
+    // 네이버 스마트스토어 데이터 추출
+    console.log('🛍️ 상품 정보 추출 중...');
+    const extractedData = await page.evaluate(() => {
+      const result = {
+        product: {},
+        reviews: [],
+        qa: []
+      };
+      
+      // 상품명 추출 (더 많은 셀렉터 시도)
+      const nameSelectors = [
+        'h1',
+        '[data-testid="product-title"]',
+        '.product_title',
+        '.productName',
+        '.goods_name',
+        '.product_name',
+        '.product_title_text',
+        '.product_name_text',
+        '.product_info h1',
+        '.product_detail h1',
+        '.product_name_area h1',
+        '.product_title_area h1'
+      ];
+      
+      for (const selector of nameSelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.name = element.textContent.trim();
+          break;
+        }
       }
-    }
-    
-    // 가격 추출
-    const priceSelectors = [
-      '.price',
-      '.product_price',
-      '.goods_price',
-      '[data-testid="price"]',
-      '.price_value',
-      '.price_text',
-      '.price_number',
-      '.product_price_text'
-    ];
-    
-    for (const selector of priceSelectors) {
-      const element = $(selector).first();
-      if (element.length && element.text().trim()) {
-        extractedData.product.price = element.text().trim();
-        console.log('✅ 가격 추출:', extractedData.product.price);
-        break;
+      
+      // 가격 추출
+      const priceSelectors = [
+        '.price',
+        '.product_price',
+        '.goods_price',
+        '[data-testid="price"]',
+        '.price_value',
+        '.price_text',
+        '.price_number',
+        '.product_price_text',
+        '.price_area .price',
+        '.product_price_area .price'
+      ];
+      
+      for (const selector of priceSelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.price = element.textContent.trim();
+          break;
+        }
       }
-    }
-    
-    // 요약 정보 추출
-    const summarySelectors = [
-      '.product_summary',
-      '.goods_summary',
-      '.product_description',
-      '.goods_description',
-      '.product_info',
-      '.product_detail'
-    ];
-    
-    for (const selector of summarySelectors) {
-      const element = $(selector).first();
-      if (element.length && element.text().trim()) {
-        extractedData.product.summary = element.text().trim();
-        console.log('✅ 요약 추출:', extractedData.product.summary.substring(0, 100) + '...');
-        break;
+      
+      // 요약 정보 추출
+      const summarySelectors = [
+        '.product_summary',
+        '.goods_summary',
+        '.product_description',
+        '.goods_description',
+        '.product_info',
+        '.product_detail',
+        '.product_summary_text',
+        '.product_description_text'
+      ];
+      
+      for (const selector of summarySelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.summary = element.textContent.trim();
+          break;
+        }
       }
-    }
-    
-    // 페이지 제목도 상품명으로 사용 (백업)
-    if (!extractedData.product.name) {
-      const title = $('title').text();
-      if (title) {
-        extractedData.product.name = title;
-        console.log('✅ 제목에서 상품명 추출:', title);
+      
+      // 페이지 제목도 상품명으로 사용 (백업)
+      if (!result.product.name) {
+        result.product.name = document.title || '상품명을 찾을 수 없습니다';
       }
-    }
+      
+      return result;
+    });
     
     console.log('🧪 추출된 데이터:', extractedData);
     
@@ -151,8 +186,7 @@ app.post('/api/extract', async (req, res) => {
     console.error('❌ API 오류 상세:', {
       message: error.message,
       stack: error.stack,
-      name: error.name,
-      code: error.code
+      name: error.name
     });
     
     res.status(500).json({ 
@@ -160,6 +194,15 @@ app.post('/api/extract', async (req, res) => {
       message: error.message,
       details: error.stack
     });
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('🔒 브라우저 종료 완료');
+      } catch (closeError) {
+        console.error('❌ 브라우저 종료 오류:', closeError.message);
+      }
+    }
   }
 });
 
