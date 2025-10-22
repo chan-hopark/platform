@@ -24,27 +24,63 @@ const UrlModal = () => {
       setError('');
       setExtractedData(null);
       
+      console.log('🚀 API 호출 시작:', `${API_BASE}/api/extract`);
+      console.log('📝 요청 URL:', url);
+      
+      const requestBody = { url };
+      console.log('📦 요청 본문:', requestBody);
+      
       const res = await fetch(`${API_BASE}/api/extract`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true'
         },
-        body: JSON.stringify({ url })
+        body: JSON.stringify(requestBody)
       });
       
+      console.log('📡 응답 상태:', res.status, res.statusText);
+      console.log('📡 응답 헤더:', Object.fromEntries(res.headers.entries()));
+      
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${res.status} ${res.statusText}`);
+        const errorText = await res.text();
+        console.error('❌ 에러 응답 본문:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText };
+        }
+        
+        throw new Error(`서버 오류 (${res.status}): ${errorData.message || errorText}`);
       }
       
-      const data = await res.json();
+      const responseText = await res.text();
+      console.log('📄 응답 본문:', responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ JSON 파싱 오류:', parseError);
+        throw new Error(`응답 파싱 오류: ${parseError.message}`);
+      }
+      
+      console.log('✅ 파싱된 데이터:', data);
       setExtractedData(data.data);
       setStatus('done');
     } catch (e) {
       setStatus('error');
-      setError(`데이터 추출 중 오류가 발생했습니다.\n${e?.message || ''}`);
-      console.error('extract error', e);
+      const errorMessage = `데이터 추출 중 오류가 발생했습니다.\n\n상세 정보:\n- 에러: ${e?.message || '알 수 없는 오류'}\n- API URL: ${API_BASE}/api/extract\n- 요청 URL: ${url}`;
+      setError(errorMessage);
+      console.error('❌ 전체 에러 정보:', {
+        message: e?.message,
+        stack: e?.stack,
+        name: e?.name,
+        apiBase: API_BASE,
+        requestUrl: url
+      });
     }
   };
 
