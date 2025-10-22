@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server/index.js",
-    "build": "echo 'No build step required'",
+    "build": "npx playwright install chromium",
     "start": "node server/index.js"
   },
   "dependencies": {
