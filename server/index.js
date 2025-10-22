@@ -1,4 +1,4 @@
-// server/index.js - Railway 환경 최적화
+// server/index.js - Railway 환경 최적화 Playwright
 import express from 'express';
 import cors from 'cors';
 import { chromium } from 'playwright';
