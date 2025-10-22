@@ -14,48 +14,114 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // 네이버 스마트스토어 상품 데이터 추출 API
 app.post('/api/extract', async (req, res) => {
+  let browser = null;
+  
   try {
+    console.log('🚀 API 요청 시작');
+    console.log('📝 요청 본문:', req.body);
+    
     const { url } = req.body;
     
     if (!url) {
+      console.log('❌ URL 누락');
       return res.status(400).json({ error: 'URL이 필요합니다.' });
     }
     
     if (!url.includes('smartstore.naver.com')) {
+      console.log('❌ 잘못된 URL:', url);
       return res.status(400).json({ error: '네이버 스마트스토어 URL만 지원됩니다.' });
     }
     
     console.log('🔍 추출 요청 받음:', url);
     
-    // 데이터 추출
-    const extractedData = await extractNaverSmartStoreData(url);
+    // Puppeteer 브라우저 실행 테스트
+    console.log('🌐 Puppeteer 브라우저 실행 중...');
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096',
+        '--single-process'
+      ]
+    });
     
-    // JSON 파일로 저장
-    const filePath = saveDataToFile(extractedData);
+    console.log('✅ 브라우저 실행 성공');
     
-    // 응답 데이터
+    const page = await browser.newPage();
+    console.log('📄 새 페이지 생성');
+    
+    // User-Agent 설정
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    console.log('🔧 User-Agent 설정 완료');
+    
+    // 뷰포트 설정
+    await page.setViewport({ width: 1920, height: 1080 });
+    console.log('📱 뷰포트 설정 완료');
+    
+    // 페이지 로딩
+    console.log('📄 페이지 로딩 시작:', url);
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+    console.log('✅ 페이지 로딩 완료');
+    
+    // 간단한 데이터 추출 테스트
+    const testData = await page.evaluate(() => {
+      return {
+        title: document.title,
+        url: window.location.href,
+        hasContent: document.body ? document.body.textContent.length > 0 : false
+      };
+    });
+    
+    console.log('🧪 테스트 데이터:', testData);
+    
+    // 기본 응답 데이터
     const response = {
       success: true,
       message: '데이터 추출이 완료되었습니다.',
-      data: extractedData,
-      filePath: filePath,
+      data: {
+        product: { name: testData.title },
+        reviews: [],
+        qa: []
+      },
       stats: {
-        product: extractedData.product.name ? '추출됨' : '추출 실패',
-        reviews: `${extractedData.reviews.length}개`,
-        qa: `${extractedData.qa.length}개`
+        product: '테스트 성공',
+        reviews: '0개',
+        qa: '0개'
       }
     };
     
     console.log('🎉 추출 완료:', response.stats);
-    
     res.json(response);
     
   } catch (error) {
-    console.error('❌ API 오류:', error);
+    console.error('❌ API 오류 상세:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
     res.status(500).json({ 
       error: '데이터 추출 실패', 
-      message: error.message 
+      message: error.message,
+      details: error.stack
     });
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('🔒 브라우저 종료 완료');
+      } catch (closeError) {
+        console.error('❌ 브라우저 종료 오류:', closeError.message);
+      }
+    }
   }
 });
 
