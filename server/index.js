@@ -1,4 +1,4 @@
-// server/index.js - Railway 환경 최적화 Playwright
+// server/index.js - 네이버 스마트스토어 전용 최적화 Playwright
 import express from 'express';
 import cors from 'cors';
 import { chromium } from 'playwright';
@@ -34,7 +34,7 @@ app.post('/api/extract', async (req, res) => {
     
     console.log('🔍 추출 요청 받음:', url);
     
-    // Playwright 브라우저 실행 (Railway 환경 최적화)
+    // Playwright 브라우저 실행 (네이버 봇 탐지 우회 설정)
     console.log('🌐 Playwright 브라우저 실행 중...');
     browser = await chromium.launch({ 
       headless: true,
@@ -52,28 +52,55 @@ app.post('/api/extract', async (req, res) => {
         '--single-process',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
+        '--disable-renderer-backgrounding',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-extensions',
+        '--disable-plugins',
+        '--disable-images',
+        '--disable-javascript-harmony-shipping'
       ]
     });
     
     console.log('✅ 브라우저 실행 성공');
     
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36',
-      viewport: { width: 1280, height: 720 }
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1920, height: 1080 },
+      locale: 'ko-KR',
+      timezoneId: 'Asia/Seoul'
     });
     
     const page = await context.newPage();
     console.log('📄 새 페이지 생성');
     
+    // 봇 탐지 우회를 위한 추가 설정
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+    });
+    
     // 페이지 로딩 (동적 렌더링 대기)
     console.log('📡 페이지 로딩 중...');
-    await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     console.log('✅ 페이지 로딩 완료');
     
-    // JavaScript 렌더링 대기
-    console.log('⏳ 동적 콘텐츠 렌더링 대기 중...');
-    await page.waitForTimeout(3000);
+    // 상품명이 나타날 때까지 대기 (네이버 실제 셀렉터)
+    console.log('⏳ 상품명 로딩 대기 중...');
+    try {
+      await page.waitForSelector('h3._1SY6k', { timeout: 10000 });
+      console.log('✅ 상품명 로딩 완료');
+    } catch (error) {
+      console.log('⚠️ 상품명 셀렉터 대기 실패, 다른 셀렉터 시도');
+      try {
+        await page.waitForSelector('h1, h3, [data-testid="product-title"]', { timeout: 5000 });
+      } catch (e) {
+        console.log('⚠️ 모든 상품명 셀렉터 실패');
+      }
+    }
+    
+    // 추가 대기 시간 (동적 콘텐츠 완전 로딩)
+    await page.waitForTimeout(2000);
     
     // 상품 정보 추출
     console.log('🛍️ 상품 정보 추출 중...');
@@ -85,23 +112,15 @@ app.post('/api/extract', async (req, res) => {
         qa: []
       };
       
-      // 상품명 추출 (다양한 셀렉터 시도)
+      // 상품명 추출 (네이버 실제 셀렉터)
       const nameSelectors = [
+        'h3._1SY6k',  // 네이버 실제 셀렉터
         'h1',
-        'h3._1SY6k',
         '[data-testid="product-title"]',
         '.product_title',
         '.productName',
         '.goods_name',
-        '.product_name',
-        '.product_title_text',
-        '.product_name_text',
-        '.product_info h1',
-        '.product_detail h1',
-        '.product_name_area h1',
-        '.product_title_area h1',
-        '.product_name_area h3',
-        '.product_title_area h3'
+        '.product_name'
       ];
       
       for (const selector of nameSelectors) {
@@ -112,20 +131,15 @@ app.post('/api/extract', async (req, res) => {
         }
       }
       
-      // 가격 추출
+      // 가격 추출 (네이버 실제 셀렉터)
       const priceSelectors = [
+        '._1LY7DqC',  // 네이버 실제 가격 셀렉터
         '.price',
         '.product_price',
         '.goods_price',
         '[data-testid="price"]',
         '.price_value',
-        '.price_text',
-        '.price_number',
-        '.product_price_text',
-        '.price_area .price',
-        '.product_price_area .price',
-        '.price_area',
-        '.product_price_area'
+        '.price_text'
       ];
       
       for (const selector of priceSelectors) {
@@ -141,11 +155,7 @@ app.post('/api/extract', async (req, res) => {
         '.product_summary',
         '.goods_summary',
         '.product_description',
-        '.goods_description',
-        '.product_info',
-        '.product_detail',
-        '.product_summary_text',
-        '.product_description_text'
+        '.goods_description'
       ];
       
       for (const selector of summarySelectors) {
@@ -164,7 +174,148 @@ app.post('/api/extract', async (req, res) => {
       return result;
     });
     
-    console.log('✅ 데이터 추출 완료:', extractedData);
+    console.log('✅ 기본 상품 정보 추출 완료:', extractedData);
+    
+    // 리뷰 탭 클릭 및 데이터 추출
+    console.log('⭐ 리뷰 데이터 추출 중...');
+    try {
+      // 리뷰 탭 찾기 및 클릭
+      const reviewTabSelectors = [
+        'a[href*="review"]',
+        'button[data-tab="review"]',
+        '.tab_review',
+        '.review_tab',
+        'li:contains("리뷰")',
+        'a:contains("리뷰")'
+      ];
+      
+      let reviewTabClicked = false;
+      for (const selector of reviewTabSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 3000 });
+          await page.click(selector);
+          reviewTabClicked = true;
+          console.log('✅ 리뷰 탭 클릭 성공');
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      if (reviewTabClicked) {
+        await page.waitForTimeout(2000);
+        
+        // 리뷰 데이터 추출
+        const reviews = await page.evaluate(() => {
+          const reviews = [];
+          const reviewSelectors = [
+            '.review_item',
+            '.review_list li',
+            '.review_content',
+            '[data-testid="review"]'
+          ];
+          
+          let reviewElements = [];
+          for (const selector of reviewSelectors) {
+            reviewElements = document.querySelectorAll(selector);
+            if (reviewElements.length > 0) break;
+          }
+          
+          reviewElements.forEach(element => {
+            try {
+              const author = element.querySelector('.review_author, .author, .reviewer')?.textContent?.trim() || '';
+              const rating = element.querySelector('.rating, .star_rating, .review_rating')?.textContent?.trim() || '';
+              const date = element.querySelector('.review_date, .date, .review_time')?.textContent?.trim() || '';
+              const content = element.querySelector('.review_content, .content, .review_text')?.textContent?.trim() || '';
+              
+              if (content) {
+                reviews.push({ author, rating, date, content });
+              }
+            } catch (e) {
+              // 개별 리뷰 추출 실패 시 무시
+            }
+          });
+          
+          return reviews;
+        });
+        
+        extractedData.reviews = reviews;
+        console.log(`✅ 리뷰 ${reviews.length}개 추출 완료`);
+      }
+    } catch (error) {
+      console.log('⚠️ 리뷰 데이터 추출 실패:', error.message);
+    }
+    
+    // Q&A 탭 클릭 및 데이터 추출
+    console.log('❓ Q&A 데이터 추출 중...');
+    try {
+      // Q&A 탭 찾기 및 클릭
+      const qaTabSelectors = [
+        'a[href*="qa"]',
+        'button[data-tab="qa"]',
+        '.tab_qa',
+        '.qa_tab',
+        'li:contains("Q&A")',
+        'a:contains("Q&A")',
+        'a:contains("문의")'
+      ];
+      
+      let qaTabClicked = false;
+      for (const selector of qaTabSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 3000 });
+          await page.click(selector);
+          qaTabClicked = true;
+          console.log('✅ Q&A 탭 클릭 성공');
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      if (qaTabClicked) {
+        await page.waitForTimeout(2000);
+        
+        // Q&A 데이터 추출
+        const qa = await page.evaluate(() => {
+          const qaList = [];
+          const qaSelectors = [
+            '.qa_item',
+            '.qa_list li',
+            '.qa_content',
+            '[data-testid="qa"]'
+          ];
+          
+          let qaElements = [];
+          for (const selector of qaSelectors) {
+            qaElements = document.querySelectorAll(selector);
+            if (qaElements.length > 0) break;
+          }
+          
+          qaElements.forEach(element => {
+            try {
+              const question = element.querySelector('.question, .qa_question, .q_text')?.textContent?.trim() || '';
+              const answer = element.querySelector('.answer, .qa_answer, .a_text')?.textContent?.trim() || '';
+              
+              if (question) {
+                qaList.push({ question, answer });
+              }
+            } catch (e) {
+              // 개별 Q&A 추출 실패 시 무시
+            }
+          });
+          
+          return qaList;
+        });
+        
+        extractedData.qa = qa;
+        console.log(`✅ Q&A ${qa.length}개 추출 완료`);
+      }
+    } catch (error) {
+      console.log('⚠️ Q&A 데이터 추출 실패:', error.message);
+    }
+    
+    console.log('🧪 최종 추출된 데이터:', extractedData);
     
     // 응답 데이터
     const apiResponse = {
