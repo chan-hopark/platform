@@ -28,7 +28,7 @@ export default async function handler(req, res) {
 
   let browser;
   try {
-    // Puppeteer 브라우저 실행 (Railway 환경에 맞게 설정)
+    // Puppeteer 브라우저 실행 (Railway Pro 환경에 최적화)
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -37,9 +37,9 @@ export default async function handler(req, res) {
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096'
       ]
     });
 
