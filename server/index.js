@@ -9,6 +9,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 정적 파일 서빙 (프론트엔드)
+app.use(express.static('public'));
+
+// 모든 GET 요청을 index.html로 리다이렉트 (SPA 지원)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+});
+
 // 네이버 스마트스토어 상품 데이터 추출 함수
 async function extractNaverSmartStoreData(url) {
   console.log('🚀 네이버 스마트스토어 데이터 추출 시작:', url);

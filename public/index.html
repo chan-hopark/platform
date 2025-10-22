@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 스마트스토어 크롤러</title>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 1.8em;
+            font-weight: 600;
+        }
+        
+        .input-group {
+            margin-bottom: 30px;
+        }
+        
+        label {
+            display: block;
+            text-align: left;
+            margin-bottom: 10px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input[type="url"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+        
+        input[type="url"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            text-align: left;
+            display: none;
+        }
+        
+        .loading {
+            display: none;
+            margin-top: 20px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+        }
+        
+        .success {
+            background: #efe;
+            border: 1px solid #cfc;
+            color: #3c3;
+        }
+        
+        .product-info {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🛍️</div>
+        <h1>네이버 스마트스토어 크롤러</h1>
+        
+        <div class="input-group">
+            <label for="url">네이버 스마트스토어 상품 URL:</label>
+            <input type="url" id="url" placeholder="https://smartstore.naver.com/..." />
+        </div>
+        
+        <button onclick="extractData()" id="extractBtn">데이터 추출 시작</button>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>데이터를 추출하고 있습니다...</p>
+        </div>
+        
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        async function extractData() {
+            const urlInput = document.getElementById('url');
+            const extractBtn = document.getElementById('extractBtn');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                alert('URL을 입력해주세요!');
+                return;
+            }
+            
+            if (!url.includes('smartstore.naver.com')) {
+                alert('네이버 스마트스토어 URL을 입력해주세요!');
+                return;
+            }
+            
+            // UI 상태 변경
+            extractBtn.disabled = true;
+            loading.style.display = 'block';
+            result.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/extract', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    showSuccessResult(data);
+                } else {
+                    showErrorResult(data.error || '데이터 추출에 실패했습니다.');
+                }
+                
+            } catch (error) {
+                loading.style.display = 'none';
+                showErrorResult('서버 연결에 실패했습니다: ' + error.message);
+            } finally {
+                extractBtn.disabled = false;
+            }
+        }
+        
+        function showSuccessResult(data) {
+            const result = document.getElementById('result');
+            result.className = 'result success';
+            result.style.display = 'block';
+            
+            const product = data.data.product;
+            const stats = data.stats;
+            
+            result.innerHTML = `
+                <h3>✅ 데이터 추출 완료!</h3>
+                <div class="product-info">
+                    <h4>${product.name || '상품명 없음'}</h4>
+                    <p><strong>가격:</strong> ${product.price || '가격 정보 없음'}</p>
+                    <p><strong>요약:</strong> ${product.summary || '요약 정보 없음'}</p>
+                </div>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.product === '추출됨' ? '✅' : '❌'}</div>
+                        <div class="stat-label">상품 정보</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.reviews}</div>
+                        <div class="stat-label">리뷰</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.qa}</div>
+                        <div class="stat-label">Q&A</div>
+                    </div>
+                </div>
+                <p><small>데이터가 성공적으로 추출되었습니다!</small></p>
+            `;
+        }
+        
+        function showErrorResult(errorMessage) {
+            const result = document.getElementById('result');
+            result.className = 'result error';
+            result.style.display = 'block';
+            result.innerHTML = `
+                <h3>❌ 오류 발생</h3>
+                <p>${errorMessage}</p>
+            `;
+        }
+        
+        // Enter 키로도 추출 가능
+        document.getElementById('url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                extractData();
+            }
+        });
+    </script>
+</body>
+</html>
