@@ -1,7 +1,7 @@
 // server/index.js
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer';
+import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
@@ -34,9 +34,9 @@ app.post('/api/extract', async (req, res) => {
     
     console.log('🔍 추출 요청 받음:', url);
     
-    // Puppeteer 브라우저 실행 테스트
-    console.log('🌐 Puppeteer 브라우저 실행 중...');
-    browser = await puppeteer.launch({
+    // Playwright 브라우저 실행
+    console.log('🌐 Playwright 브라우저 실행 중...');
+    browser = await chromium.launch({
       headless: true,
       args: [
         '--no-sandbox',
@@ -48,53 +48,100 @@ app.post('/api/extract', async (req, res) => {
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor',
         '--memory-pressure-off',
-        '--max_old_space_size=4096',
-        '--single-process'
+        '--max_old_space_size=4096'
       ]
     });
     
     console.log('✅ 브라우저 실행 성공');
     
-    const page = await browser.newPage();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1920, height: 1080 }
+    });
+    
+    const page = await context.newPage();
     console.log('📄 새 페이지 생성');
-    
-    // User-Agent 설정
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    console.log('🔧 User-Agent 설정 완료');
-    
-    // 뷰포트 설정
-    await page.setViewport({ width: 1920, height: 1080 });
-    console.log('📱 뷰포트 설정 완료');
     
     // 페이지 로딩
     console.log('📄 페이지 로딩 시작:', url);
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
     console.log('✅ 페이지 로딩 완료');
     
-    // 간단한 데이터 추출 테스트
-    const testData = await page.evaluate(() => {
-      return {
-        title: document.title,
-        url: window.location.href,
-        hasContent: document.body ? document.body.textContent.length > 0 : false
+    // 네이버 스마트스토어 데이터 추출
+    console.log('🛍️ 상품 정보 추출 중...');
+    const extractedData = await page.evaluate(() => {
+      const result = {
+        product: {},
+        reviews: [],
+        qa: []
       };
+      
+      // 상품명 추출
+      const nameSelectors = [
+        'h1',
+        '[data-testid="product-title"]',
+        '.product_title',
+        '.productName',
+        '.goods_name',
+        '.product_name'
+      ];
+      
+      for (const selector of nameSelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.name = element.textContent.trim();
+          break;
+        }
+      }
+      
+      // 가격 추출
+      const priceSelectors = [
+        '.price',
+        '.product_price',
+        '.goods_price',
+        '[data-testid="price"]',
+        '.price_value',
+        '.price_text'
+      ];
+      
+      for (const selector of priceSelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.price = element.textContent.trim();
+          break;
+        }
+      }
+      
+      // 요약 정보 추출
+      const summarySelectors = [
+        '.product_summary',
+        '.goods_summary',
+        '.product_description',
+        '.goods_description'
+      ];
+      
+      for (const selector of summarySelectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          result.product.summary = element.textContent.trim();
+          break;
+        }
+      }
+      
+      return result;
     });
     
-    console.log('🧪 테스트 데이터:', testData);
+    console.log('🧪 추출된 데이터:', extractedData);
     
-    // 기본 응답 데이터
+    // 응답 데이터
     const response = {
       success: true,
       message: '데이터 추출이 완료되었습니다.',
-      data: {
-        product: { name: testData.title },
-        reviews: [],
-        qa: []
-      },
+      data: extractedData,
       stats: {
-        product: '테스트 성공',
-        reviews: '0개',
-        qa: '0개'
+        product: extractedData.product.name ? '추출됨' : '추출 실패',
+        reviews: `${extractedData.reviews.length}개`,
+        qa: `${extractedData.qa.length}개`
       }
     };
     
