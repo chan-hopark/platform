@@ -1,7 +1,7 @@
 // server/index.js
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer';
+import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
@@ -34,9 +34,9 @@ app.post('/api/extract', async (req, res) => {
     
     console.log('🔍 추출 요청 받음:', url);
     
-    // Railway 환경에 최적화된 Puppeteer 설정
-    console.log('🌐 Puppeteer 브라우저 실행 중...');
-    browser = await puppeteer.launch({
+    // Playwright 브라우저 실행 (Railway 환경 최적화)
+    console.log('🌐 Playwright 브라우저 실행 중...');
+    browser = await chromium.launch({ 
       headless: true,
       args: [
         '--no-sandbox',
@@ -49,41 +49,32 @@ app.post('/api/extract', async (req, res) => {
         '--disable-features=VizDisplayCompositor',
         '--memory-pressure-off',
         '--max_old_space_size=2048',
-        '--single-process',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
-      ],
-      timeout: 60000
+        '--single-process'
+      ]
     });
     
     console.log('✅ 브라우저 실행 성공');
     
-    const page = await browser.newPage();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115 Safari/537.36',
+      viewport: { width: 1280, height: 720 }
+    });
+    
+    const page = await context.newPage();
     console.log('📄 새 페이지 생성');
     
-    // User-Agent 설정
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    console.log('🔧 User-Agent 설정 완료');
-    
-    // 뷰포트 설정
-    await page.setViewport({ width: 1920, height: 1080 });
-    console.log('📱 뷰포트 설정 완료');
-    
     // 페이지 로딩 (동적 렌더링 대기)
-    console.log('📄 페이지 로딩 시작:', url);
-    await page.goto(url, { 
-      waitUntil: 'networkidle0', 
-      timeout: 60000 
-    });
+    console.log('📡 페이지 로딩 중...');
+    await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
     console.log('✅ 페이지 로딩 완료');
     
-    // 추가 대기 시간 (동적 콘텐츠 로딩)
-    console.log('⏳ 동적 콘텐츠 로딩 대기 중...');
+    // JavaScript 렌더링 대기
+    console.log('⏳ 동적 콘텐츠 렌더링 대기 중...');
     await page.waitForTimeout(3000);
     
-    // 네이버 스마트스토어 데이터 추출
+    // 상품 정보 추출
     console.log('🛍️ 상품 정보 추출 중...');
+    
     const extractedData = await page.evaluate(() => {
       const result = {
         product: {},
@@ -91,9 +82,10 @@ app.post('/api/extract', async (req, res) => {
         qa: []
       };
       
-      // 상품명 추출 (더 많은 셀렉터 시도)
+      // 상품명 추출 (다양한 셀렉터 시도)
       const nameSelectors = [
         'h1',
+        'h3._1SY6k',
         '[data-testid="product-title"]',
         '.product_title',
         '.productName',
@@ -104,7 +96,9 @@ app.post('/api/extract', async (req, res) => {
         '.product_info h1',
         '.product_detail h1',
         '.product_name_area h1',
-        '.product_title_area h1'
+        '.product_title_area h1',
+        '.product_name_area h3',
+        '.product_title_area h3'
       ];
       
       for (const selector of nameSelectors) {
@@ -126,7 +120,9 @@ app.post('/api/extract', async (req, res) => {
         '.price_number',
         '.product_price_text',
         '.price_area .price',
-        '.product_price_area .price'
+        '.product_price_area .price',
+        '.price_area',
+        '.product_price_area'
       ];
       
       for (const selector of priceSelectors) {
@@ -165,7 +161,7 @@ app.post('/api/extract', async (req, res) => {
       return result;
     });
     
-    console.log('🧪 추출된 데이터:', extractedData);
+    console.log('✅ 데이터 추출 완료:', extractedData);
     
     // 응답 데이터
     const apiResponse = {
