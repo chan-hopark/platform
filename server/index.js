@@ -84,7 +84,7 @@ app.post('/api/extract', async (req, res) => {
     console.log('✅ 페이지 로딩 완료');
     
     // 추가 대기 시간 (동적 콘텐츠 로딩)
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
     
     // 기본 응답 구조 초기화
     const extractedData = {
@@ -117,29 +117,34 @@ app.post('/api/extract', async (req, res) => {
         const titleMeta = document.querySelector('meta[property="og:title"]');
         if (titleMeta) {
           result.name = titleMeta.getAttribute('content') || null;
+          console.log('상품명 추출:', result.name);
         }
         
         // 가격: meta[property="product:price:amount"]
         const priceMeta = document.querySelector('meta[property="product:price:amount"]');
         if (priceMeta) {
           result.price = priceMeta.getAttribute('content') || null;
+          console.log('가격 추출:', result.price);
         }
         
         // 썸네일: meta[property="og:image"]
         const imageMeta = document.querySelector('meta[property="og:image"]');
         if (imageMeta) {
           result.thumbnail = imageMeta.getAttribute('content') || null;
+          console.log('썸네일 추출:', result.thumbnail);
         }
         
         // 요약: meta[property="og:description"]
         const descMeta = document.querySelector('meta[property="og:description"]');
         if (descMeta) {
           result.summary = descMeta.getAttribute('content') || null;
+          console.log('요약 추출:', result.summary);
         }
         
         // 백업: 페이지 제목
         if (!result.name) {
           result.name = document.title || null;
+          console.log('백업 상품명:', result.name);
         }
         
         return result;
@@ -174,7 +179,9 @@ app.post('/api/extract', async (req, res) => {
               '[data-testid="review"]',
               '.review_list .review_item',
               '.review_item_list li',
-              '.review_list_item'
+              '.review_list_item',
+              '.review_list .review_item_list li',
+              '.review_list .review_item_list .review_item'
             ];
             
             let reviewElements = [];
@@ -249,7 +256,9 @@ app.post('/api/extract', async (req, res) => {
               '[data-testid="qa"]',
               '.qa_list .qa_item',
               '.qa_item_list li',
-              '.qa_list_item'
+              '.qa_list_item',
+              '.qa_list .qa_item_list li',
+              '.qa_list .qa_item_list .qa_item'
             ];
             
             let qaElements = [];
