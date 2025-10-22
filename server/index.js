@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // 정적 파일 서빙 (프론트엔드)
-app.use(express.static('public'));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 // 모든 GET 요청을 index.html로 리다이렉트 (SPA 지원)
 app.get('*', (req, res) => {

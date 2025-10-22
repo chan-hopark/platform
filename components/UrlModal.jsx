@@ -2,7 +2,7 @@
 import React from 'react';
 import Modal from './Modal';
 
-const API_BASE = import.meta.env.VITE_API_BASE || ''; // ''이면 동일 도메인(/api 프록시)
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://platform-production-865a.up.railway.app'; // Railway 배포 URL
 
 const UrlModal = () => {
   const [url, setUrl] = React.useState('');
