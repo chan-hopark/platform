@@ -1,4 +1,4 @@
-// server/index.js - Railway 환경 최적화 네이버 스마트스토어 크롤러
+// server/index.js - Railway 환경 최적화 네이버 스마트스토어 크롤러 (Meta 태그 + iframe 처리)
 import express from 'express';
 import cors from 'cors';
 import { chromium } from 'playwright';
@@ -83,272 +83,227 @@ app.post('/api/extract', async (req, res) => {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     console.log('✅ 페이지 로딩 완료');
     
-    // 상품 정보가 로딩될 때까지 대기
-    console.log('⏳ 상품 정보 로딩 대기 중...');
-    try {
-      // 네이버 스마트스토어 실제 셀렉터들로 대기
-      await page.waitForSelector('h3, h1, [data-testid="product-title"], .product_title', { timeout: 15000 });
-      console.log('✅ 상품 정보 로딩 완료');
-    } catch (error) {
-      console.log('⚠️ 상품 정보 로딩 대기 실패, 계속 진행');
-    }
-    
-    // 추가 대기 시간
+    // 추가 대기 시간 (동적 콘텐츠 로딩)
     await page.waitForTimeout(3000);
     
-    // 상품 정보 추출
-    console.log('🛍️ 상품 정보 추출 중...');
+    // 기본 응답 구조 초기화
+    const extractedData = {
+      product: {
+        name: null,
+        price: null,
+        summary: null,
+        thumbnail: null
+      },
+      reviews: [],
+      qa: [],
+      stats: {
+        reviewCount: 0,
+        qaCount: 0
+      }
+    };
     
-    const extractedData = await page.evaluate(() => {
-      const result = {
-        product: {
-          name: '',
-          price: '',
-          summary: ''
-        },
-        reviews: [],
-        qa: [],
-        stats: {
-          reviewCount: 0,
-          qaCount: 0
-        }
-      };
-      
-      // 상품명 추출 (네이버 스마트스토어 실제 셀렉터들)
-      const nameSelectors = [
-        'h3._1SY6k',  // 네이버 메인 상품명 셀렉터
-        'h1._2XqUq',  // 네이버 대체 상품명 셀렉터
-        'h1',
-        'h3',
-        '[data-testid="product-title"]',
-        '.product_title',
-        '.productName',
-        '.goods_name',
-        '.product_name',
-        '.product_title_text',
-        '.product_name_text'
-      ];
-      
-      for (const selector of nameSelectors) {
-        const element = document.querySelector(selector);
-        if (element && element.textContent.trim()) {
-          result.product.name = element.textContent.trim();
-          break;
-        }
-      }
-      
-      // 가격 추출 (네이버 스마트스토어 실제 셀렉터들)
-      const priceSelectors = [
-        '._1LY7DqC',  // 네이버 메인 가격 셀렉터
-        '._2XqUq',    // 네이버 대체 가격 셀렉터
-        '.price',
-        '.product_price',
-        '.goods_price',
-        '[data-testid="price"]',
-        '.price_value',
-        '.price_text',
-        '.price_number',
-        '.product_price_text',
-        '.price_area .price',
-        '.product_price_area .price'
-      ];
-      
-      for (const selector of priceSelectors) {
-        const element = document.querySelector(selector);
-        if (element && element.textContent.trim()) {
-          result.product.price = element.textContent.trim();
-          break;
-        }
-      }
-      
-      // 요약 정보 추출
-      const summarySelectors = [
-        '.product_summary',
-        '.goods_summary',
-        '.product_description',
-        '.goods_description',
-        '.product_info',
-        '.product_detail',
-        '.product_summary_text',
-        '.product_description_text'
-      ];
-      
-      for (const selector of summarySelectors) {
-        const element = document.querySelector(selector);
-        if (element && element.textContent.trim()) {
-          result.product.summary = element.textContent.trim();
-          break;
-        }
-      }
-      
-      // 페이지 제목도 상품명으로 사용 (백업)
-      if (!result.product.name) {
-        result.product.name = document.title || '상품명을 찾을 수 없습니다';
-      }
-      
-      return result;
-    });
-    
-    console.log('✅ 기본 상품 정보 추출 완료:', extractedData);
-    
-    // 리뷰 탭 클릭 및 데이터 추출
-    console.log('⭐ 리뷰 데이터 추출 중...');
+    // 1. Meta 태그 기반 상품 정보 추출
+    console.log('🛍️ Meta 태그 기반 상품 정보 추출 중...');
     try {
-      // 리뷰 탭 찾기 및 클릭
-      const reviewTabSelectors = [
-        'a[href*="review"]',
-        'button[data-tab="review"]',
-        '.tab_review',
-        '.review_tab',
-        'li:contains("리뷰")',
-        'a:contains("리뷰")',
-        '[data-testid="review-tab"]'
-      ];
+      const metaData = await page.evaluate(() => {
+        const result = {
+          name: null,
+          price: null,
+          summary: null,
+          thumbnail: null
+        };
+        
+        // 상품명: meta[property="og:title"]
+        const titleMeta = document.querySelector('meta[property="og:title"]');
+        if (titleMeta) {
+          result.name = titleMeta.getAttribute('content') || null;
+        }
+        
+        // 가격: meta[property="product:price:amount"]
+        const priceMeta = document.querySelector('meta[property="product:price:amount"]');
+        if (priceMeta) {
+          result.price = priceMeta.getAttribute('content') || null;
+        }
+        
+        // 썸네일: meta[property="og:image"]
+        const imageMeta = document.querySelector('meta[property="og:image"]');
+        if (imageMeta) {
+          result.thumbnail = imageMeta.getAttribute('content') || null;
+        }
+        
+        // 요약: meta[property="og:description"]
+        const descMeta = document.querySelector('meta[property="og:description"]');
+        if (descMeta) {
+          result.summary = descMeta.getAttribute('content') || null;
+        }
+        
+        // 백업: 페이지 제목
+        if (!result.name) {
+          result.name = document.title || null;
+        }
+        
+        return result;
+      });
       
-      let reviewTabClicked = false;
-      for (const selector of reviewTabSelectors) {
+      extractedData.product = metaData;
+      console.log('✅ Meta 태그 기반 상품 정보 추출 완료:', metaData);
+      
+    } catch (error) {
+      console.log('⚠️ Meta 태그 추출 실패:', error.message);
+    }
+    
+    // 2. iframe 처리로 리뷰 데이터 추출
+    console.log('⭐ iframe 기반 리뷰 데이터 추출 중...');
+    try {
+      // 모든 iframe 확인
+      const frames = page.frames();
+      console.log(`📋 총 ${frames.length}개의 iframe 발견`);
+      
+      for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i];
         try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            reviewTabClicked = true;
-            console.log('✅ 리뷰 탭 클릭 성공');
-            break;
+          console.log(`🔍 iframe ${i} 확인 중...`);
+          
+          // iframe 내부에서 리뷰 관련 셀렉터 찾기
+          const reviewData = await frame.evaluate(() => {
+            const reviews = [];
+            const reviewSelectors = [
+              '.review_item',
+              '.review_list li',
+              '.review_content',
+              '[data-testid="review"]',
+              '.review_list .review_item',
+              '.review_item_list li',
+              '.review_list_item'
+            ];
+            
+            let reviewElements = [];
+            for (const selector of reviewSelectors) {
+              reviewElements = document.querySelectorAll(selector);
+              if (reviewElements.length > 0) {
+                console.log(`리뷰 셀렉터 발견: ${selector} (${reviewElements.length}개)`);
+                break;
+              }
+            }
+            
+            reviewElements.forEach(element => {
+              try {
+                const author = element.querySelector('.review_author, .author, .reviewer, .user_name')?.textContent?.trim() || '';
+                const rating = element.querySelector('.rating, .star_rating, .review_rating, .score')?.textContent?.trim() || '';
+                const date = element.querySelector('.review_date, .date, .review_time, .created_at')?.textContent?.trim() || '';
+                const content = element.querySelector('.review_content, .content, .review_text, .review_comment')?.textContent?.trim() || '';
+                
+                if (content) {
+                  reviews.push({ author, rating, date, content });
+                }
+              } catch (e) {
+                // 개별 리뷰 추출 실패 시 무시
+              }
+            });
+            
+            return {
+              reviews,
+              count: reviews.length
+            };
+          });
+          
+          if (reviewData.reviews.length > 0) {
+            extractedData.reviews = reviewData.reviews;
+            extractedData.stats.reviewCount = reviewData.count;
+            console.log(`✅ iframe ${i}에서 리뷰 ${reviewData.count}개 추출 완료`);
+            break; // 리뷰를 찾았으면 중단
           }
-        } catch (e) {
+          
+        } catch (frameError) {
+          console.log(`⚠️ iframe ${i} 처리 실패:`, frameError.message);
           continue;
         }
       }
       
-      if (reviewTabClicked) {
-        await page.waitForTimeout(2000);
-        
-        // 리뷰 개수 및 데이터 추출
-        const reviewData = await page.evaluate(() => {
-          const reviews = [];
-          const reviewSelectors = [
-            '.review_item',
-            '.review_list li',
-            '.review_content',
-            '[data-testid="review"]',
-            '.review_list .review_item'
-          ];
-          
-          let reviewElements = [];
-          for (const selector of reviewSelectors) {
-            reviewElements = document.querySelectorAll(selector);
-            if (reviewElements.length > 0) break;
-          }
-          
-          reviewElements.forEach(element => {
-            try {
-              const author = element.querySelector('.review_author, .author, .reviewer')?.textContent?.trim() || '';
-              const rating = element.querySelector('.rating, .star_rating, .review_rating')?.textContent?.trim() || '';
-              const date = element.querySelector('.review_date, .date, .review_time')?.textContent?.trim() || '';
-              const content = element.querySelector('.review_content, .content, .review_text')?.textContent?.trim() || '';
-              
-              if (content) {
-                reviews.push({ author, rating, date, content });
-              }
-            } catch (e) {
-              // 개별 리뷰 추출 실패 시 무시
-            }
-          });
-          
-          return {
-            reviews,
-            count: reviews.length
-          };
-        });
-        
-        extractedData.reviews = reviewData.reviews;
-        extractedData.stats.reviewCount = reviewData.count;
-        console.log(`✅ 리뷰 ${reviewData.count}개 추출 완료`);
+      if (extractedData.stats.reviewCount === 0) {
+        console.log('⚠️ 리뷰 데이터를 찾을 수 없습니다');
       }
+      
     } catch (error) {
       console.log('⚠️ 리뷰 데이터 추출 실패:', error.message);
     }
     
-    // Q&A 탭 클릭 및 데이터 추출
-    console.log('❓ Q&A 데이터 추출 중...');
+    // 3. iframe 처리로 Q&A 데이터 추출
+    console.log('❓ iframe 기반 Q&A 데이터 추출 중...');
     try {
-      // Q&A 탭 찾기 및 클릭
-      const qaTabSelectors = [
-        'a[href*="qa"]',
-        'button[data-tab="qa"]',
-        '.tab_qa',
-        '.qa_tab',
-        'li:contains("Q&A")',
-        'a:contains("Q&A")',
-        'a:contains("문의")',
-        '[data-testid="qa-tab"]'
-      ];
+      // 모든 iframe 확인
+      const frames = page.frames();
       
-      let qaTabClicked = false;
-      for (const selector of qaTabSelectors) {
+      for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i];
         try {
-          const element = await page.$(selector);
-          if (element) {
-            await element.click();
-            qaTabClicked = true;
-            console.log('✅ Q&A 탭 클릭 성공');
-            break;
+          console.log(`🔍 iframe ${i} Q&A 확인 중...`);
+          
+          // iframe 내부에서 Q&A 관련 셀렉터 찾기
+          const qaData = await frame.evaluate(() => {
+            const qaList = [];
+            const qaSelectors = [
+              '.qa_item',
+              '.qa_list li',
+              '.qa_content',
+              '[data-testid="qa"]',
+              '.qa_list .qa_item',
+              '.qa_item_list li',
+              '.qa_list_item'
+            ];
+            
+            let qaElements = [];
+            for (const selector of qaSelectors) {
+              qaElements = document.querySelectorAll(selector);
+              if (qaElements.length > 0) {
+                console.log(`Q&A 셀렉터 발견: ${selector} (${qaElements.length}개)`);
+                break;
+              }
+            }
+            
+            qaElements.forEach(element => {
+              try {
+                const question = element.querySelector('.question, .qa_question, .q_text, .qa_q')?.textContent?.trim() || '';
+                const answer = element.querySelector('.answer, .qa_answer, .a_text, .qa_a')?.textContent?.trim() || '';
+                
+                if (question) {
+                  qaList.push({ question, answer });
+                }
+              } catch (e) {
+                // 개별 Q&A 추출 실패 시 무시
+              }
+            });
+            
+            return {
+              qa: qaList,
+              count: qaList.length
+            };
+          });
+          
+          if (qaData.qa.length > 0) {
+            extractedData.qa = qaData.qa;
+            extractedData.stats.qaCount = qaData.count;
+            console.log(`✅ iframe ${i}에서 Q&A ${qaData.count}개 추출 완료`);
+            break; // Q&A를 찾았으면 중단
           }
-        } catch (e) {
+          
+        } catch (frameError) {
+          console.log(`⚠️ iframe ${i} Q&A 처리 실패:`, frameError.message);
           continue;
         }
       }
       
-      if (qaTabClicked) {
-        await page.waitForTimeout(2000);
-        
-        // Q&A 데이터 추출
-        const qaData = await page.evaluate(() => {
-          const qaList = [];
-          const qaSelectors = [
-            '.qa_item',
-            '.qa_list li',
-            '.qa_content',
-            '[data-testid="qa"]',
-            '.qa_list .qa_item'
-          ];
-          
-          let qaElements = [];
-          for (const selector of qaSelectors) {
-            qaElements = document.querySelectorAll(selector);
-            if (qaElements.length > 0) break;
-          }
-          
-          qaElements.forEach(element => {
-            try {
-              const question = element.querySelector('.question, .qa_question, .q_text')?.textContent?.trim() || '';
-              const answer = element.querySelector('.answer, .qa_answer, .a_text')?.textContent?.trim() || '';
-              
-              if (question) {
-                qaList.push({ question, answer });
-              }
-            } catch (e) {
-              // 개별 Q&A 추출 실패 시 무시
-            }
-          });
-          
-          return {
-            qa: qaList,
-            count: qaList.length
-          };
-        });
-        
-        extractedData.qa = qaData.qa;
-        extractedData.stats.qaCount = qaData.count;
-        console.log(`✅ Q&A ${qaData.count}개 추출 완료`);
+      if (extractedData.stats.qaCount === 0) {
+        console.log('⚠️ Q&A 데이터를 찾을 수 없습니다');
       }
+      
     } catch (error) {
       console.log('⚠️ Q&A 데이터 추출 실패:', error.message);
     }
     
     console.log('🧪 최종 추출된 데이터:', extractedData);
     
-    // 응답 데이터
+    // 성공 응답 (데이터가 없어도 200 응답)
     const apiResponse = {
       success: true,
       message: '데이터 추출이 완료되었습니다.',
@@ -370,10 +325,17 @@ app.post('/api/extract', async (req, res) => {
       name: error.name
     });
     
-    res.status(500).json({ 
+    // 에러가 발생해도 200 응답으로 JSON 반환
+    res.json({ 
       success: false,
       error: '데이터 추출 실패',
-      details: error.message
+      details: error.message,
+      data: {
+        product: { name: null, price: null, summary: null, thumbnail: null },
+        reviews: [],
+        qa: [],
+        stats: { reviewCount: 0, qaCount: 0 }
+      }
     });
   } finally {
     if (browser) {
