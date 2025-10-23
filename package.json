@@ -27,6 +27,12 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0"
   },
+  "overrides": {
+    "undici": "npm:@types/node@^20.0.0"
+  },
+  "resolutions": {
+    "undici": "npm:@types/node@^20.0.0"
+  },
   "devDependencies": {
     "@types/react": "^18.0.28",
     "@types/react-dom": "^18.0.11",

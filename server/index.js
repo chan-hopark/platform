@@ -1,5 +1,26 @@
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
+// undici 체크 및 차단
+try {
+  const undiciPath = require.resolve('undici');
+  console.log("❌ undici가 감지되었습니다:", undiciPath);
+  console.log("🔄 undici 제거를 시도합니다...");
+  
+  // undici 모듈 차단
+  const Module = require('module');
+  const originalRequire = Module.prototype.require;
+  Module.prototype.require = function(id) {
+    if (id === 'undici' || id.includes('undici')) {
+      throw new Error('undici is blocked');
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  
+  console.log("✅ undici 차단 완료");
+} catch (error) {
+  console.log("✅ undici가 설치되지 않음");
+}
+
 // Node.js 18 File/Blob polyfill (undici 호환성)
 if (typeof globalThis.File === 'undefined' || typeof globalThis.Blob === 'undefined') {
   try {

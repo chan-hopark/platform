@@ -2,13 +2,17 @@
   "build": {
     "builder": "NIXPACKS",
     "nixpacksPlan": {
+      "providers": ["nodejs"],
       "phases": {
         "setup": {
-          "nixPkgs": ["nodejs_20", "npm"]
+          "nixPkgs": ["nodejs_20", "npm", "nodePackages.npm"],
+          "aptPkgs": ["curl", "wget"]
         },
         "install": {
           "cmds": [
-            "npm ci",
+            "node --version",
+            "npm --version", 
+            "npm ci --production=false",
             "npx playwright install chromium --with-deps"
           ]
         },
@@ -21,7 +25,7 @@
     }
   },
   "deploy": {
-    "startCommand": "npm start",
+    "startCommand": "node --version && npm start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   },
@@ -29,7 +33,8 @@
     "production": {
       "variables": {
         "NODE_ENV": "production",
-        "NODE_VERSION": "20.0.0"
+        "NODE_VERSION": "20.0.0",
+        "NIXPACKS_NODE_VERSION": "20"
       }
     }
   }
