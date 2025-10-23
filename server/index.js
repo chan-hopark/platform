@@ -973,19 +973,41 @@ const PORT = process.env.PORT || 3000;
 // Railway 환경에서 안전한 서버 시작
 const startServer = () => {
   try {
-    app.listen(PORT, "0.0.0.0", () => {
+    console.log("🔄 서버 시작 중...");
+    console.log(`📍 포트: ${PORT}`);
+    console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔧 Node.js 버전: ${process.version}`);
+    
+    const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
-      console.log(`📍 포트: ${PORT}`);
       console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
-      console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📦 빌드 경로: ${buildPath}`);
       console.log(`🍪 쿠키 설정: ${NAVER_COOKIE ? '✅ 설정됨' : '❌ 미설정'}`);
-      console.log(`🔧 Node.js 버전: ${process.version}`);
       console.log(`🌐 File polyfill: ${typeof globalThis.File !== 'undefined' ? '✅ 적용됨' : '❌ 미적용'}`);
       console.log(`✅ 서버 준비 완료!`);
     });
+    
+    // 서버 에러 핸들링
+    server.on('error', (error) => {
+      console.error("❌ 서버 에러:", error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ 포트 ${PORT}가 이미 사용 중입니다.`);
+      }
+      process.exit(1);
+    });
+    
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('🔄 SIGTERM 신호 수신, 서버 종료 중...');
+      server.close(() => {
+        console.log('✅ 서버 종료 완료');
+        process.exit(0);
+      });
+    });
+    
   } catch (error) {
     console.error("❌ 서버 시작 실패:", error);
+    console.error("❌ 에러 스택:", error.stack);
     process.exit(1);
   }
 };
