@@ -3,21 +3,20 @@
     "builder": "NIXPACKS",
     "nixpacksPlan": {
       "phases": {
+        "setup": {
+          "nixPkgs": ["nodejs", "npm"]
+        },
         "install": {
-          "commands": [
-            "npm ci",
+          "cmds": [
+            "npm install",
             "npx playwright install --with-deps"
           ]
         },
         "build": {
-          "commands": [
-            "npm run build"
-          ]
+          "cmds": []
         }
       }
     }
   },
-  "deploy": {
-    "startCommand": "npm start"
-  }
+  "start": "npm start"
 }
