@@ -3,9 +3,6 @@
     "builder": "NIXPACKS",
     "nixpacksPlan": {
       "phases": {
-        "setup": {
-          "nixPkgs": ["nodejs", "npm"]
-        },
         "install": {
           "cmds": [
             "npm install",
@@ -13,10 +10,14 @@
           ]
         },
         "build": {
-          "cmds": []
+          "cmds": [
+            "npm run build"
+          ]
         }
       }
     }
   },
-  "start": "npm start"
+  "deploy": {
+    "startCommand": "npm start"
+  }
 }

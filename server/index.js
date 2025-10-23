@@ -1,6 +1,4 @@
-// index.js (Railway / debug-ready version)
-// 덮어쓰기용 — 기존 파일을 이 파일로 교체하세요.
-
+// index.js (Railway 최적화 버전)
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -24,12 +22,24 @@ if (fs.existsSync(buildPath)) {
   console.log("⚠️ 빌드된 파일이 없습니다. npm run build를 실행하세요.");
 }
 
-// debug output dir inside container
-const OUTDIR = path.join("/app", "debug-output");
-try { fs.mkdirSync(OUTDIR, { recursive: true }); } catch (e) {}
+// debug output dir (Railway 환경에 맞게 수정)
+const OUTDIR = process.env.NODE_ENV === 'production' 
+  ? path.join("/app", "debug-output") 
+  : path.join(__dirname, "..", "debug-output");
+try { 
+  fs.mkdirSync(OUTDIR, { recursive: true }); 
+  console.log("📁 디버그 출력 디렉토리:", OUTDIR);
+} catch (e) {
+  console.log("⚠️ 디버그 디렉토리 생성 실패:", e.message);
+}
 
-// health
-app.get("/api/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+// health check
+app.get("/api/health", (_req, res) => res.json({ 
+  ok: true, 
+  ts: Date.now(),
+  environment: process.env.NODE_ENV || 'development',
+  outdir: OUTDIR
+}));
 
 // root -> React 앱 또는 fallback
 app.get("/", (_req, res) => {
@@ -37,7 +47,9 @@ app.get("/", (_req, res) => {
     res.sendFile(path.join(buildPath, "index.html"));
   } else {
     res.type("text").send(
-      "Debug Playwright API running. POST JSON {\"url\":\"...\"} to /api/extract to run debug collector.\n\n빌드된 프론트엔드가 없습니다. npm run build를 실행하세요."
+      "🚀 Playwright 크롤러 API 실행 중\n\n" +
+      "POST JSON {\"url\":\"...\"} to /api/extract to run crawler.\n\n" +
+      "빌드된 프론트엔드가 없습니다. npm run build를 실행하세요."
     );
   }
 });
@@ -94,6 +106,10 @@ app.post("/api/extract", async (req, res) => {
         "--disable-features=VizDisplayCompositor",
         "--memory-pressure-off",
         "--max_old_space_size=2048",
+        "--single-process",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding"
       ],
     });
 
@@ -507,6 +523,11 @@ app.post("/api/extract", async (req, res) => {
 
 // server listen
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Debug crawler server listening on ${PORT} (OUTDIR=${OUTDIR})`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Playwright 크롤러 서버 실행 중`);
+  console.log(`📍 포트: ${PORT}`);
+  console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
+  console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📦 빌드 경로: ${buildPath}`);
+  console.log(`✅ 서버 준비 완료!`);
 });
