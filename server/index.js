@@ -136,13 +136,63 @@ function extractProductId(url) {
 }
 
 /**
- * HTML에서 channelId 추출
+ * channelId 추출 (다중 방법 시도)
  */
 async function extractChannelId(url) {
+  console.log("🔍 channelId 추출 시작...");
+  
+  // 1차 시도: API를 통한 직접 추출 (가장 안정적)
   try {
-    console.log("🔍 HTML에서 channelId 추출 중...");
+    console.log("🔄 1차 시도: API를 통한 channelId 추출");
+    const productId = extractProductId(url);
+    if (productId) {
+      const apiUrl = `https://smartstore.naver.com/i/v2/products/${productId}`;
+      console.log(`📍 API URL: ${apiUrl}`);
+      
+      const apiResponse = await fetch(apiUrl, {
+        method: 'GET',
+        headers: getDefaultHeaders(url),
+        ...fetchOptions
+      });
+      
+      console.log(`📊 API 응답 상태: ${apiResponse.status}`);
+      
+      if (apiResponse.status === 200) {
+        const data = await apiResponse.json();
+        console.log(`📄 API 응답 키들:`, Object.keys(data));
+        
+        // 다양한 경로에서 channelId 찾기
+        let channelId = null;
+        
+        if (data.channel && data.channel.id) {
+          channelId = data.channel.id;
+        } else if (data.channelId) {
+          channelId = data.channelId;
+        } else if (data.channel && data.channel.channelId) {
+          channelId = data.channel.channelId;
+        } else if (data.product && data.product.channelId) {
+          channelId = data.product.channelId;
+        }
+        
+        if (channelId) {
+          console.log(`✅ API에서 channelId 발견: ${channelId}`);
+          return channelId;
+        }
+        
+        console.log("⚠️ API 응답에 channelId가 없습니다.");
+        console.log("📄 API 응답 샘플:", JSON.stringify(data).substring(0, 500));
+      } else {
+        console.log(`⚠️ API 요청 실패: ${apiResponse.status}`);
+      }
+    }
+  } catch (apiError) {
+    console.log("❌ API 요청 실패:", apiError.message);
+  }
+  
+  // 2차 시도: HTML에서 추출
+  try {
+    console.log("🔄 2차 시도: HTML에서 channelId 추출");
     
-    // Railway 환경에서 안전한 요청을 위한 추가 헤더
     const safeHeaders = {
       ...getDefaultHeaders(url),
       'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -160,98 +210,84 @@ async function extractChannelId(url) {
       ...fetchOptions
     });
     
-    if (response.status !== 200) {
-      console.log(`⚠️ HTML 요청 상태: ${response.status}`);
-      if (response.status === 429) {
-        throw new Error("Rate limit exceeded. Please try again later.");
-      }
-      if (response.status === 403) {
-        throw new Error("Access forbidden. Check cookies and user agent.");
-      }
-      throw new Error(`HTML 요청 실패: ${response.status}`);
-    }
-    
-    const html = await response.text();
-    const $ = cheerio.load(html);
-    
-    // 방법 1: script 태그에서 channelUid 찾기
-    const scripts = $('script').toArray();
-    for (const script of scripts) {
-      const content = $(script).html();
-      if (content) {
-        // channelUid 패턴 찾기
-        const match = content.match(/"channelUid":"([a-zA-Z0-9_-]+)"/);
-        if (match) {
-          console.log(`✅ script 태그에서 channelId 발견: ${match[1]}`);
-          return match[1];
-        }
-        
-        // __PRELOADED_STATE__ 또는 __APOLLO_STATE__에서 찾기
-        const stateMatch = content.match(/__PRELOADED_STATE__|__APOLLO_STATE__/);
-        if (stateMatch) {
-          const jsonMatch = content.match(/"channelUid":"([a-zA-Z0-9_-]+)"/);
-          if (jsonMatch) {
-            console.log(`✅ 상태 객체에서 channelId 발견: ${jsonMatch[1]}`);
-            return jsonMatch[1];
+    if (response.status === 200) {
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      
+      // 다양한 패턴으로 channelId 찾기
+      const patterns = [
+        /"channelUid":"([a-zA-Z0-9_-]+)"/,
+        /"channelId":"([a-zA-Z0-9_-]+)"/,
+        /"channel":"([a-zA-Z0-9_-]+)"/,
+        /channels\/([a-zA-Z0-9_-]+)/,
+        /channelUid=([a-zA-Z0-9_-]+)/,
+        /channelId=([a-zA-Z0-9_-]+)/
+      ];
+      
+      // script 태그에서 찾기
+      const scripts = $('script').toArray();
+      for (const script of scripts) {
+        const content = $(script).html();
+        if (content) {
+          for (const pattern of patterns) {
+            const match = content.match(pattern);
+            if (match) {
+              console.log(`✅ HTML에서 channelId 발견: ${match[1]}`);
+              return match[1];
+            }
           }
         }
       }
-    }
-    
-    // 방법 2: meta 태그에서 찾기
-    const metaTags = $('meta').toArray();
-    for (const meta of metaTags) {
-      const content = $(meta).attr('content');
-      if (content && content.includes('channel')) {
-        const match = content.match(/channels\/([a-zA-Z0-9_-]+)/);
-        if (match) {
-          console.log(`✅ meta 태그에서 channelId 발견: ${match[1]}`);
-          return match[1];
-        }
-      }
-    }
-    
-    console.log("⚠️ HTML에서 channelId를 찾을 수 없습니다.");
-    
-    // Fallback: API를 통해 channelId 추출 시도
-    console.log("🔄 API로 channelId 추출 시도 중...");
-    try {
-      const productId = extractProductId(url);
-      if (!productId) {
-        console.log("❌ productId가 없어서 API fallback 불가능");
-        return null;
-      }
       
-      const apiUrl = `https://smartstore.naver.com/i/v2/products/${productId}`;
-      console.log(`📍 API URL: ${apiUrl}`);
-      
-      const apiResponse = await fetch(apiUrl, {
-        method: 'GET',
-        headers: getDefaultHeaders(url),
-        ...fetchOptions
-      });
-      
-      if (apiResponse.status === 200) {
-        const data = await apiResponse.json();
-        if (data.channel && data.channel.id) {
-          console.log(`✅ API에서 channelId 발견: ${data.channel.id}`);
-          return data.channel.id;
+      // meta 태그에서 찾기
+      const metaTags = $('meta').toArray();
+      for (const meta of metaTags) {
+        const content = $(meta).attr('content');
+        if (content) {
+          for (const pattern of patterns) {
+            const match = content.match(pattern);
+            if (match) {
+              console.log(`✅ meta 태그에서 channelId 발견: ${match[1]}`);
+              return match[1];
+            }
+          }
         }
       }
       
-      console.log(`⚠️ API 응답 상태: ${apiResponse.status}`);
-      console.log("❌ API로 channelId 추출 실패");
-      return null;
-      
-    } catch (apiError) {
-      console.log("❌ API로 channelId 추출 실패:", apiError.message);
-      return null;
+      console.log("⚠️ HTML에서 channelId를 찾을 수 없습니다.");
+    } else {
+      console.log(`⚠️ HTML 요청 실패: ${response.status}`);
     }
-    
-  } catch (e) {
-    console.log("❌ channelId 추출 실패:", e.message);
-    return null;
+  } catch (htmlError) {
+    console.log("❌ HTML 파싱 실패:", htmlError.message);
   }
+  
+  // 3차 시도: URL에서 직접 추출
+  try {
+    console.log("🔄 3차 시도: URL에서 channelId 추출");
+    
+    // URL에서 channelId 패턴 찾기
+    const urlPatterns = [
+      /\/channels\/([a-zA-Z0-9_-]+)\/products/,
+      /channelId=([a-zA-Z0-9_-]+)/,
+      /channel=([a-zA-Z0-9_-]+)/
+    ];
+    
+    for (const pattern of urlPatterns) {
+      const match = url.match(pattern);
+      if (match) {
+        console.log(`✅ URL에서 channelId 발견: ${match[1]}`);
+        return match[1];
+      }
+    }
+    
+    console.log("⚠️ URL에서 channelId를 찾을 수 없습니다.");
+  } catch (urlError) {
+    console.log("❌ URL 파싱 실패:", urlError.message);
+  }
+  
+  console.log("❌ 모든 방법으로 channelId 추출 실패");
+  return null;
 }
 
 /**
