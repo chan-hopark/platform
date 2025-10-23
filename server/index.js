@@ -1,14 +1,17 @@
-// index.js 맨 위에 추가
-if (typeof File === "undefined") {
-  global.File = class File extends Blob {
-    constructor(chunks, filename, options = {}) {
-      super(chunks, options);
-      this.name = filename;
-      this.lastModified = options.lastModified || Date.now();
-    }
-  };
-}
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
+
+// Node.js v18+ 전역 객체 polyfill (undici 호환성)
+import { Blob, File } from 'node:buffer';
+
+if (!globalThis.File) {
+  globalThis.File = File;
+  console.log("✅ File polyfill 적용 완료");
+}
+
+if (!globalThis.Blob) {
+  globalThis.Blob = Blob;
+  console.log("✅ Blob polyfill 적용 완료");
+}
 
 import express from "express";
 import cors from "cors";
