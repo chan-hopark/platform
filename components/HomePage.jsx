@@ -37,7 +37,29 @@ const HomePage = () => {
       if (data.ok) {
         setResult(data);
       } else {
-        setError(data.error || '데이터 추출에 실패했습니다.');
+        // 백엔드에서 오는 상세한 에러 정보 표시
+        let errorMessage = data.error || '데이터 추출에 실패했습니다.';
+        
+        // debug 정보가 있으면 추가
+        if (data.debug && data.debug.errors && data.debug.errors.length > 0) {
+          errorMessage += '\n\n상세 오류:';
+          data.debug.errors.forEach(err => {
+            errorMessage += `\n• ${err}`;
+          });
+        }
+        
+        // endpoints 정보가 있으면 추가
+        if (data.debug && data.debug.endpoints && data.debug.endpoints.length > 0) {
+          errorMessage += '\n\nAPI 호출 상태:';
+          data.debug.endpoints.forEach(endpoint => {
+            errorMessage += `\n• ${endpoint.name}: ${endpoint.status}`;
+            if (endpoint.error) {
+              errorMessage += ` (${endpoint.error})`;
+            }
+          });
+        }
+        
+        setError(errorMessage);
       }
     } catch (error) {
       setError('서버와의 통신 중 오류가 발생했습니다: ' + error.message);
@@ -86,7 +108,7 @@ const HomePage = () => {
           {error && (
             <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <h3 className="text-red-800 font-semibold mb-2">❌ 오류 발생</h3>
-              <p className="text-red-700">{error}</p>
+              <div className="text-red-700 whitespace-pre-line">{error}</div>
             </div>
           )}
 
