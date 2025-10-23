@@ -8,7 +8,7 @@ import CompareModal from './components/CompareModal';
 
 const ModalRoutes = () => {
   const location = useLocation();
-  const state = location.state as { backgroundLocation?: Location };
+  const state = location.state;
   const background = state && state.backgroundLocation ? state.backgroundLocation : null;
 
   return (
