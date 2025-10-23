@@ -92,30 +92,67 @@ const HomePage = () => {
 
           {result && (
             <div className="mt-6">
+              {/* 상품 요약 정보 */}
               <div className="p-4 bg-green-50 border border-green-200 rounded-lg mb-4">
                 <h3 className="text-green-800 font-semibold mb-2">✅ 데이터 추출 완료!</h3>
-                <p className="text-green-700">
-                  <strong>상품명:</strong> {result.product?.name || '추출 실패'} | 
-                  <strong> 가격:</strong> {result.product?.price || '추출 실패'}
-                </p>
-                {result.product?.summary && (
-                  <p className="text-green-700 mt-2">
-                    <strong>요약:</strong> {result.product.summary}
-                  </p>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-green-700">
+                      <strong>상품명:</strong> {result.product?.productName || '추출 실패'}
+                    </p>
+                    <p className="text-green-700">
+                      <strong>가격:</strong> {result.product?.salePrice ? `${result.product.salePrice.toLocaleString()}원` : '추출 실패'}
+                    </p>
+                    <p className="text-green-700">
+                      <strong>브랜드:</strong> {result.product?.brandName || '정보 없음'}
+                    </p>
+                    <p className="text-green-700">
+                      <strong>카테고리:</strong> {result.product?.categoryName || '정보 없음'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-green-700">
+                      <strong>리뷰 수:</strong> {result.reviews?.length || 0}개
+                    </p>
+                    <p className="text-green-700">
+                      <strong>Q&A 수:</strong> {result.qnas?.length || 0}개
+                    </p>
+                    <p className="text-green-700">
+                      <strong>처리 시간:</strong> {result.durationMs}ms
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {result.frames && result.frames.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="font-semibold mb-2">🔍 발견된 iframe 정보:</h4>
-                  <div className="space-y-2">
-                    {result.frames.map((frame, index) => (
-                      <div key={index} className="p-3 bg-gray-50 rounded border">
-                        <p className="text-sm"><strong>iframe {index}:</strong> {frame.url}</p>
-                        {frame.productData && (frame.productData.name || frame.productData.price) && (
-                          <p className="text-sm text-green-600">
-                            상품 정보 발견: {frame.productData.name || '이름 없음'} - {frame.productData.price || '가격 없음'}
-                          </p>
+              {/* 상품 상세 정보 */}
+              {result.product && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-semibold text-blue-800 mb-2">📦 상품 상세 정보</h4>
+                  {result.product.detailContent && (
+                    <div className="text-blue-700">
+                      <strong>상세 설명:</strong>
+                      <div className="mt-2 p-3 bg-white rounded border max-h-40 overflow-y-auto">
+                        <div dangerouslySetInnerHTML={{ __html: result.product.detailContent }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 리뷰 정보 */}
+              {result.reviews && result.reviews.length > 0 && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h4 className="font-semibold text-yellow-800 mb-2">⭐ 리뷰 ({result.reviews.length}개)</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {result.reviews.slice(0, 10).map((review, index) => (
+                      <div key={index} className="p-3 bg-white rounded border">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="font-medium">{review.writer?.name || '익명'}</span>
+                          <span className="text-sm text-gray-500">{review.createdAt}</span>
+                        </div>
+                        <p className="text-sm text-gray-700">{review.content}</p>
+                        {review.rating && (
+                          <p className="text-sm text-yellow-600">평점: {review.rating}</p>
                         )}
                       </div>
                     ))}
@@ -123,10 +160,64 @@ const HomePage = () => {
                 </div>
               )}
 
-              {result.errorDetails && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                  <h4 className="font-semibold text-yellow-800">⚠️ 상세 오류 정보:</h4>
-                  <p className="text-yellow-700 text-sm">{result.errorDetails.message}</p>
+              {/* Q&A 정보 */}
+              {result.qnas && result.qnas.length > 0 && (
+                <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                  <h4 className="font-semibold text-purple-800 mb-2">❓ Q&A ({result.qnas.length}개)</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {result.qnas.slice(0, 10).map((qna, index) => (
+                      <div key={index} className="p-3 bg-white rounded border">
+                        <div className="mb-2">
+                          <p className="font-medium text-purple-700">Q: {qna.question}</p>
+                          {qna.answer && (
+                            <p className="text-sm text-gray-600 mt-1">A: {qna.answer}</p>
+                          )}
+                        </div>
+                        <div className="flex justify-between items-center text-xs text-gray-500">
+                          <span>{qna.writer?.name || '익명'}</span>
+                          <span>{qna.createdAt}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 디버그 정보 */}
+              {result.debug && (
+                <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                  <h4 className="font-semibold text-gray-800 mb-2">🔧 디버그 정보</h4>
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <p><strong>Product ID:</strong> {result.productId}</p>
+                    <p><strong>Channel ID:</strong> {result.channelId}</p>
+                    <p><strong>캐시 사용:</strong> {result.debug.cacheHit ? '✅' : '❌'}</p>
+                    
+                    {result.debug.endpoints && result.debug.endpoints.length > 0 && (
+                      <div className="mt-2">
+                        <strong>API 엔드포인트:</strong>
+                        <ul className="ml-4 space-y-1">
+                          {result.debug.endpoints.map((endpoint, index) => (
+                            <li key={index} className="flex items-center">
+                              <span className={`w-2 h-2 rounded-full mr-2 ${endpoint.status === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              {endpoint.name}: {endpoint.status}
+                              {endpoint.error && <span className="text-red-600 ml-2">({endpoint.error})</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {result.debug.errors && result.debug.errors.length > 0 && (
+                      <div className="mt-2">
+                        <strong>오류:</strong>
+                        <ul className="ml-4 space-y-1">
+                          {result.debug.errors.map((error, index) => (
+                            <li key={index} className="text-red-600">• {error}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
