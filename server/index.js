@@ -1,18 +1,4 @@
-// index.js (네이버 스마트스토어 API 크롤러 - axios 기반)
-
-// File polyfill for Node.js v18 (Railway 환경)
-try {
-  const { File } = await import("formdata-node");
-  
-  // Global File polyfill for undici compatibility
-  if (typeof globalThis.File === 'undefined') {
-    globalThis.File = File;
-    console.log("✅ File polyfill 적용 완료");
-  }
-} catch (error) {
-  console.warn("⚠️ File polyfill 적용 실패:", error.message);
-  console.log("📝 undici 버전 고정으로 대체 시도");
-}
+// index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
 import express from "express";
 import cors from "cors";
@@ -23,9 +9,19 @@ import * as cheerio from "cheerio";
 import { fileURLToPath } from "url";
 import http from "http";
 import https from "https";
+import fetch from "node-fetch";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// 환경변수 로딩 확인 (배포 시 제거 예정)
+console.log("🔧 환경변수 로딩 상태:");
+console.log("  - NAVER_COOKIE:", process.env.NAVER_COOKIE ? "✅ 설정됨" : "❌ 미설정");
+console.log("  - NAVER_USER_AGENT:", process.env.NAVER_USER_AGENT ? "✅ 설정됨" : "❌ 미설정");
+console.log("  - NAVER_ACCEPT:", process.env.NAVER_ACCEPT ? "✅ 설정됨" : "❌ 미설정");
+console.log("  - NAVER_ACCEPT_LANGUAGE:", process.env.NAVER_ACCEPT_LANGUAGE ? "✅ 설정됨" : "❌ 미설정");
+console.log("  - NODE_ENV:", process.env.NODE_ENV || "development");
+console.log("  - PORT:", process.env.PORT || "3000");
 
 const app = express();
 app.use(cors());
@@ -63,12 +59,11 @@ if (!NAVER_COOKIE) {
   console.log("   또는 .env 파일에 NAVER_COOKIE를 설정하세요.");
 }
 
-// axios 인스턴스 생성 (성능 최적화)
-const axiosInstance = axios.create({
+// node-fetch 설정 (undici 문제 해결)
+const fetchOptions = {
   timeout: 15000,
-  httpAgent: new http.Agent({ keepAlive: true }),
-  httpsAgent: new https.Agent({ keepAlive: true })
-});
+  agent: new https.Agent({ keepAlive: true })
+};
 
 // 기본 헤더 설정
 const getDefaultHeaders = (referer) => ({
@@ -98,16 +93,12 @@ app.get("/api/health", (_req, res) => res.json({
   nodeVersion: process.version
 }));
 
-// root -> React 앱 또는 fallback
+// root -> React 앱 또는 health check
 app.get("/", (_req, res) => {
   if (fs.existsSync(buildPath)) {
     res.sendFile(path.join(buildPath, "index.html"));
   } else {
-  res.type("text").send(
-      "🚀 네이버 스마트스토어 크롤러 API 실행 중\n\n" +
-      "POST JSON {\"url\":\"...\"} to /api/extract to run crawler.\n\n" +
-      "빌드된 프론트엔드가 없습니다. npm run build를 실행하세요."
-    );
+    res.send("Server is running 🚀");
   }
 });
 
@@ -143,11 +134,10 @@ async function extractChannelId(url) {
       'upgrade-insecure-requests': '1'
     };
     
-    const response = await axiosInstance.get(url, {
+    const response = await fetch(url, {
+      method: 'GET',
       headers: safeHeaders,
-      timeout: 30000, // 30초 타임아웃
-      maxRedirects: 5,
-      validateStatus: (status) => status < 500 // 5xx 에러만 제외
+      ...fetchOptions
     });
     
     if (response.status !== 200) {
@@ -161,7 +151,8 @@ async function extractChannelId(url) {
       throw new Error(`HTML 요청 실패: ${response.status}`);
     }
     
-    const $ = cheerio.load(response.data);
+    const html = await response.text();
+    const $ = cheerio.load(html);
     
     // 방법 1: script 태그에서 channelUid 찾기
     const scripts = $('script').toArray();
@@ -219,14 +210,16 @@ async function getProductInfo(channelId, productId, originalUrl) {
     const apiUrl = `https://smartstore.naver.com/i/v2/channels/${channelId}/products/${productId}?withWindow=false`;
     console.log(`📍 API URL: ${apiUrl}`);
     
-    const response = await axiosInstance.get(apiUrl, {
-      headers: getDefaultHeaders(originalUrl)
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: getDefaultHeaders(originalUrl),
+      ...fetchOptions
     });
     
     console.log(`📊 상품 API 응답: ${response.status}`);
     
     if (response.status === 200) {
-      const data = response.data;
+      const data = await response.json();
       console.log(`📄 상품 API 응답 크기: ${JSON.stringify(data).length} 문자`);
       
       return {
@@ -265,26 +258,30 @@ async function getReviews(productId, channelId, originalUrl) {
     
     let response;
     try {
-      response = await axiosInstance.get(apiUrl, {
-        headers: getDefaultHeaders(originalUrl)
+      response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: getDefaultHeaders(originalUrl),
+        ...fetchOptions
       });
-    } catch (e) {
-      if (e.response?.status === 404) {
+      
+      if (response.status === 404) {
         // 두 번째 시도: mallId 포함
         apiUrl = `https://smartstore.naver.com/i/v2/reviews/paged-reviews?mallId=${channelId}&productId=${productId}&page=1&pageSize=20&sortType=REVIEW_CREATED_DESC`;
         console.log(`📍 리뷰 API URL (2차): ${apiUrl}`);
-        response = await axiosInstance.get(apiUrl, {
-          headers: getDefaultHeaders(originalUrl)
+        response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: getDefaultHeaders(originalUrl),
+          ...fetchOptions
         });
-      } else {
-        throw e;
       }
+    } catch (e) {
+      throw e;
     }
     
     console.log(`📊 리뷰 API 응답: ${response.status}`);
     
     if (response.status === 200) {
-      const data = response.data;
+      const data = await response.json();
       console.log(`📄 리뷰 API 응답 크기: ${JSON.stringify(data).length} 문자`);
       
       return {
@@ -323,26 +320,30 @@ async function getQnas(productId, channelId, originalUrl) {
     
     let response;
     try {
-      response = await axiosInstance.get(apiUrl, {
-        headers: getDefaultHeaders(originalUrl)
+      response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: getDefaultHeaders(originalUrl),
+        ...fetchOptions
       });
-    } catch (e) {
-      if (e.response?.status === 404) {
+      
+      if (response.status === 404) {
         // 두 번째 시도: mallId 포함
         apiUrl = `https://smartstore.naver.com/i/v2/questions?mallId=${channelId}&productId=${productId}&page=1&pageSize=20&sortType=CREATED_DESC`;
         console.log(`📍 Q&A API URL (2차): ${apiUrl}`);
-        response = await axiosInstance.get(apiUrl, {
-          headers: getDefaultHeaders(originalUrl)
+        response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: getDefaultHeaders(originalUrl),
+          ...fetchOptions
         });
-      } else {
-        throw e;
       }
+    } catch (e) {
+      throw e;
     }
     
     console.log(`📊 Q&A API 응답: ${response.status}`);
     
     if (response.status === 200) {
-      const data = response.data;
+      const data = await response.json();
       console.log(`📄 Q&A API 응답 크기: ${JSON.stringify(data).length} 문자`);
       
       return {
