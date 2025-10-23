@@ -101,51 +101,91 @@ const fetchOptions = {
   agent: new https.Agent({ keepAlive: true })
 };
 
+// 쿠키 상태 관리
+let cookieStatus = {
+  lastUpdate: 0,
+  isUpdating: false,
+  updateCount: 0,
+  lastError: null
+};
+
 // 자동 쿠키 갱신 함수 (로그인 없이)
-async function refreshNaverCookie() {
+async function refreshNaverCookie(forceUpdate = false) {
+  // 이미 갱신 중이면 대기
+  if (cookieStatus.isUpdating && !forceUpdate) {
+    console.log("⏳ 쿠키 갱신이 이미 진행 중입니다...");
+    return false;
+  }
+
   try {
-    console.log("🔄 자동 쿠키 갱신 시작 (로그인 없이)...");
+    cookieStatus.isUpdating = true;
+    console.log("🔄 자동 쿠키 갱신 시작...");
     
     const browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor'
+      ]
     });
     
     // User-Agent 로테이션 사용
     const currentUserAgent = getNextUserAgent();
-    
+
     const context = await browser.newContext({
-      userAgent: currentUserAgent
+      userAgent: currentUserAgent,
+      viewport: { width: 1920, height: 1080 }
     });
     
     const page = await context.newPage();
     
     // 스마트스토어 메인 페이지 방문
-    await page.goto('https://smartstore.naver.com');
+    await page.goto('https://smartstore.naver.com', { 
+      waitUntil: 'networkidle',
+      timeout: 30000 
+    });
     
     // 잠시 대기 (쿠키 설정 시간)
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
     
-    // 쿠키 추출
-    const cookies = await context.cookies();
-    const cookieString = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+    // document.cookie에서 쿠키 추출
+    const documentCookies = await page.evaluate(() => {
+      return document.cookie;
+    });
     
-    if (cookieString) {
+    // Playwright context에서도 쿠키 추출
+    const contextCookies = await context.cookies();
+    const contextCookieString = contextCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+    
+    // 더 긴 쿠키 문자열 선택
+    const cookieString = documentCookies.length > contextCookieString.length ? documentCookies : contextCookieString;
+    
+    if (cookieString && cookieString.length > 10) {
       NAVER_COOKIE = cookieString;
       lastCookieUpdate = Date.now();
-      console.log("✅ 쿠키 자동 갱신 완료 (로그인 없이)");
+      cookieStatus.lastUpdate = Date.now();
+      cookieStatus.updateCount++;
+      cookieStatus.lastError = null;
+      
+      console.log("✅ 쿠키 자동 갱신 완료");
       console.log(`📄 새 쿠키 길이: ${cookieString.length} 문자`);
       console.log(`🔄 사용된 User-Agent: ${currentUserAgent.substring(0, 50)}...`);
+      
       return true;
     } else {
-      console.log("❌ 쿠키 추출 실패");
-      return false;
+      throw new Error("쿠키 추출 실패: 유효하지 않은 쿠키");
     }
     
   } catch (error) {
+    cookieStatus.lastError = error.message;
     console.log("❌ 쿠키 자동 갱신 실패:", error.message);
     return false;
   } finally {
+    cookieStatus.isUpdating = false;
     if (browser) {
       await browser.close();
     }
@@ -161,16 +201,30 @@ function getNextUserAgent() {
 }
 
 // 쿠키 갱신 필요 여부 확인
-async function checkAndRefreshCookie() {
+async function checkAndRefreshCookie(forceUpdate = false) {
   const now = Date.now();
   
-  // 주기적 갱신 (6시간마다)
-  if (now - lastCookieUpdate > COOKIE_UPDATE_INTERVAL) {
-    console.log("⏰ 주기적 쿠키 갱신 시도");
-    return await refreshNaverCookie();
+  // 강제 갱신 또는 주기적 갱신 (6시간마다)
+  if (forceUpdate || now - lastCookieUpdate > COOKIE_UPDATE_INTERVAL) {
+    console.log("⏰ 쿠키 갱신 필요 감지");
+    return await refreshNaverCookie(forceUpdate);
   }
   
   return false;
+}
+
+// API 호출 전 쿠키 최신성 확인
+async function ensureFreshCookie() {
+  const now = Date.now();
+  const timeSinceLastUpdate = now - lastCookieUpdate;
+  
+  // 5시간 이상 지났으면 갱신
+  if (timeSinceLastUpdate > 5 * 60 * 60 * 1000) {
+    console.log("🔄 쿠키가 오래되어 갱신 시도...");
+    return await refreshNaverCookie(true);
+  }
+  
+  return true;
 }
 
 // 기본 헤더 설정 (User-Agent 로테이션 포함)
@@ -208,6 +262,31 @@ app.get("/", (_req, res) => {
   } else {
     res.send("Server is running 🚀");
   }
+});
+
+// Health check 엔드포인트
+app.get("/api/health", (_req, res) => {
+  const now = Date.now();
+  const timeSinceLastUpdate = now - cookieStatus.lastUpdate;
+  
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    cookie: {
+      hasCookie: !!NAVER_COOKIE,
+      cookieLength: NAVER_COOKIE ? NAVER_COOKIE.length : 0,
+      lastUpdate: cookieStatus.lastUpdate ? new Date(cookieStatus.lastUpdate).toISOString() : null,
+      timeSinceLastUpdate: Math.floor(timeSinceLastUpdate / 1000 / 60), // 분 단위
+      updateCount: cookieStatus.updateCount,
+      isUpdating: cookieStatus.isUpdating,
+      lastError: cookieStatus.lastError
+    },
+    server: {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      nodeVersion: process.version
+    }
+  });
 });
 
 /**
@@ -287,8 +366,8 @@ async function extractChannelId(url, debugInfo = {}) {
       } else {
         console.log(`⚠️ API 요청 실패: ${apiStatus}`);
         errors.push(`API 요청 실패: ${apiStatus}`);
-      }
-    } else {
+              }
+            } else {
       errors.push("productId 추출 실패");
     }
   } catch (apiError) {
@@ -693,22 +772,54 @@ app.post("/api/extract", async (req, res) => {
       }
     }
 
-    // 3. 주기적 쿠키 갱신 확인
-    await checkAndRefreshCookie();
+    // 3. 쿠키 최신성 확인 및 갱신
+    console.log("🍪 쿠키 상태 확인 중...");
+    const cookieRefreshResult = await ensureFreshCookie();
+    if (!cookieRefreshResult) {
+      console.log("⚠️ 쿠키 갱신 실패, 기존 쿠키로 진행");
+    }
     
     // 4. channelId 추출 (강화된 디버깅)
     console.log("🔍 channelId 추출 중...");
     const debugInfo = {};
     const channelId = await extractChannelId(url, debugInfo);
     if (!channelId) {
-      response.error = "❌ 모든 방법으로 channelId 추출 실패";
-      response.debug.errors = debugInfo.errors || ["❌ 모든 방법으로 channelId 추출 실패"];
-      response.debug.triedMethods = debugInfo.triedMethods;
-      response.debug.successMethod = debugInfo.successMethod;
-      response.debug.apiStatus = debugInfo.apiStatus;
-      response.debug.htmlChecked = debugInfo.htmlChecked;
-      response.debug.urlPatterns = debugInfo.urlPatterns;
-      return res.status(200).json(response);
+      // 쿠키 만료로 인한 실패인지 확인
+      const isCookieExpired = debugInfo.errors && debugInfo.errors.some(err => 
+        err.includes('401') || err.includes('403') || err.includes('429')
+      );
+      
+      if (isCookieExpired) {
+        console.log("🔄 쿠키 만료 감지, 강제 갱신 시도...");
+        const forceRefreshResult = await refreshNaverCookie(true);
+        if (forceRefreshResult) {
+          console.log("✅ 쿠키 갱신 성공, channelId 재추출 시도...");
+          const retryChannelId = await extractChannelId(url, debugInfo);
+          if (retryChannelId) {
+            response.channelId = retryChannelId;
+            console.log(`✅ channelId 재추출 성공: ${retryChannelId}`);
+          } else {
+            response.error = "❌ 쿠키 갱신 후에도 channelId 추출 실패";
+            response.debug.errors = ["쿠키가 만료되어 API 접근 거부됨 → 자동 갱신 시도 중", ...(debugInfo.errors || [])];
+            response.debug.cookieRefreshAttempted = true;
+            return res.status(200).json(response);
+          }
+        } else {
+          response.error = "❌ 쿠키 자동 갱신 실패";
+          response.debug.errors = ["쿠키가 만료되어 API 접근 거부됨 → 자동 갱신 실패", ...(debugInfo.errors || [])];
+          response.debug.cookieRefreshAttempted = true;
+          return res.status(200).json(response);
+        }
+      } else {
+        response.error = "❌ 모든 방법으로 channelId 추출 실패";
+        response.debug.errors = debugInfo.errors || ["❌ 모든 방법으로 channelId 추출 실패"];
+        response.debug.triedMethods = debugInfo.triedMethods;
+        response.debug.successMethod = debugInfo.successMethod;
+        response.debug.apiStatus = debugInfo.apiStatus;
+        response.debug.htmlChecked = debugInfo.htmlChecked;
+        response.debug.urlPatterns = debugInfo.urlPatterns;
+        return res.status(200).json(response);
+      }
     }
     response.channelId = channelId;
     console.log(`✅ channelId: ${channelId}`);
@@ -832,11 +943,28 @@ const startServer = () => {
   }
 };
 
+// 서버 시작 시 초기 쿠키 갱신
+async function initializeServer() {
+  console.log("🚀 서버 초기화 중...");
+  
+  // 초기 쿠키 갱신 (백그라운드에서 실행)
+  setTimeout(async () => {
+    try {
+      console.log("🔄 서버 시작 시 초기 쿠키 갱신...");
+      await refreshNaverCookie(true);
+    } catch (error) {
+      console.log("⚠️ 초기 쿠키 갱신 실패:", error.message);
+    }
+  }, 2000); // 2초 후 실행
+  
+  startServer();
+}
+
 // Railway 환경에서 안전한 시작
 if (process.env.NODE_ENV === 'production') {
   // 프로덕션 환경에서는 즉시 시작
-  startServer();
+  initializeServer();
 } else {
   // 개발 환경에서는 약간의 지연 후 시작
-  setTimeout(startServer, 100);
+  setTimeout(initializeServer, 100);
 }
