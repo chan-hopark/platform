@@ -65,7 +65,8 @@ async function extractFromFrame(page, frame, frameIndex) {
       name: null,
       price: null,
       summary: null,
-      image: null
+      image: null,
+      description: null  // 상품 상세설명 HTML
     },
     reviews: [],
     qa: [],
@@ -304,27 +305,49 @@ async function extractFromFrame(page, frame, frameIndex) {
       }
     }
 
-    // 5. 리뷰 데이터 추출
+    // 5. 상품 상세설명 추출 (#INTRODUCE 영역)
+    console.log(`📋 iframe ${frameIndex} 상품 상세설명 추출 시도 중...`);
+    try {
+      const introduceElement = frame.locator('#INTRODUCE').first();
+      const count = await introduceElement.count();
+      if (count > 0) {
+        const introduceHtml = await introduceElement.innerHTML();
+        result.product.description = introduceHtml;
+        result.debug.foundElements.push(`상품 상세설명: #INTRODUCE -> ${introduceHtml.length}자`);
+        console.log(`✅ iframe ${frameIndex} 상품 상세설명 발견:`, introduceHtml.length + '자');
+      } else {
+        console.log(`⚠️ iframe ${frameIndex} #INTRODUCE 영역 없음`);
+      }
+    } catch (e) {
+      console.log(`❌ iframe ${frameIndex} 상품 상세설명 추출 실패:`, e.message);
+    }
+
+    // 6. 리뷰 데이터 추출 (탭 클릭 + waitForSelector)
     console.log(`⭐ iframe ${frameIndex} 리뷰 데이터 추출 시도 중...`);
     try {
-      // 리뷰 관련 셀렉터들
-      const reviewSelectors = [
+      // 리뷰 탭 클릭 시도
+      const reviewTabSelectors = [
         'button:has-text("리뷰")',
         'a:has-text("리뷰")',
         '.review_tab',
         '.review_tab_button',
         '[data-testid="review-tab"]',
-        '[class*="review"]'
+        '[class*="review"]',
+        'button[data-tab="review"]',
+        'a[data-tab="review"]',
+        '.tab_review',
+        '.tab-review'
       ];
 
-      for (const selector of reviewSelectors) {
+      let reviewTabClicked = false;
+      for (const selector of reviewTabSelectors) {
         try {
           const element = frame.locator(selector).first();
           const count = await element.count();
           if (count > 0) {
             await element.click();
-            console.log(`✅ iframe ${frameIndex} 리뷰 탭 클릭 성공`);
-            await frame.waitForTimeout(2000);
+            console.log(`✅ iframe ${frameIndex} 리뷰 탭 클릭 성공 (${selector})`);
+            reviewTabClicked = true;
             break;
           }
         } catch (e) {
@@ -332,57 +355,71 @@ async function extractFromFrame(page, frame, frameIndex) {
         }
       }
 
-      // 리뷰 아이템 추출
-      const reviewItemSelectors = [
-        '.review_item',
-        '.review-item',
-        '.review_list .item',
-        '.review_list_item',
-        '.review_content',
-        '.review_text',
-        '[class*="review"]'
-      ];
-
-      for (const selector of reviewItemSelectors) {
+      if (reviewTabClicked) {
+        // 리뷰 아이템 로딩 대기
+        console.log(`⏳ iframe ${frameIndex} 리뷰 아이템 로딩 대기 중...`);
         try {
-          const elements = await frame.locator(selector).all();
-          if (elements.length > 0) {
-            console.log(`📊 iframe ${frameIndex} ${elements.length}개의 리뷰 발견`);
-            
-            for (let i = 0; i < Math.min(elements.length, 10); i++) {
-              try {
-                const element = elements[i];
-                const author = await element.locator('.review_author, .author, .reviewer').textContent().catch(() => '익명');
-                const rating = await element.locator('.rating, .star, .score').textContent().catch(() => '');
-                const content = await element.locator('.review_content, .content, .text').textContent().catch(() => '');
-                const date = await element.locator('.date, .review_date').textContent().catch(() => '');
-
-                if (content && content.trim()) {
-                  result.reviews.push({
-                    author: author || '익명',
-                    rating: rating || '',
-                    content: content.trim(),
-                    date: date || ''
-                  });
-                }
-              } catch (e) {
-                console.log(`❌ iframe ${frameIndex} 리뷰 ${i} 추출 실패:`, e.message);
-              }
-            }
-            break;
-          }
+          await frame.waitForSelector('.review_item', { timeout: 5000 });
+          console.log(`✅ iframe ${frameIndex} 리뷰 아이템 로딩 완료`);
         } catch (e) {
-          // 셀렉터 실패 시 다음 시도
+          console.log(`⚠️ iframe ${frameIndex} 리뷰 아이템 로딩 타임아웃`);
         }
+
+        // 리뷰 아이템 추출
+        const reviewItemSelectors = [
+          '.review_item',
+          '.review-item',
+          '.review_list .item',
+          '.review_list_item',
+          '.review_content',
+          '.review_text',
+          '[class*="review"]'
+        ];
+
+        for (const selector of reviewItemSelectors) {
+          try {
+            const elements = await frame.locator(selector).all();
+            if (elements.length > 0) {
+              console.log(`📊 iframe ${frameIndex} ${elements.length}개의 리뷰 발견`);
+              
+              for (let i = 0; i < Math.min(elements.length, 20); i++) {
+                try {
+                  const element = elements[i];
+                  const author = await element.locator('.review_author, .author, .reviewer, .user_name').textContent().catch(() => '익명');
+                  const rating = await element.locator('.rating, .star, .score, .review_rating').textContent().catch(() => '');
+                  const content = await element.locator('.review_content, .content, .text, .review_text').textContent().catch(() => '');
+                  const date = await element.locator('.date, .review_date, .created_date').textContent().catch(() => '');
+
+                  if (content && content.trim()) {
+                    result.reviews.push({
+                      author: author || '익명',
+                      rating: rating || '',
+                      content: content.trim(),
+                      date: date || ''
+                    });
+                  }
+                } catch (e) {
+                  console.log(`❌ iframe ${frameIndex} 리뷰 ${i} 추출 실패:`, e.message);
+                }
+              }
+              break;
+            }
+          } catch (e) {
+            // 셀렉터 실패 시 다음 시도
+          }
+        }
+      } else {
+        console.log(`⚠️ iframe ${frameIndex} 리뷰 탭을 찾을 수 없음`);
       }
     } catch (e) {
       console.log(`❌ iframe ${frameIndex} 리뷰 추출 실패:`, e.message);
     }
 
-    // 6. Q&A 데이터 추출
+    // 7. Q&A 데이터 추출 (탭 클릭 + waitForSelector)
     console.log(`❓ iframe ${frameIndex} Q&A 데이터 추출 시도 중...`);
     try {
-      const qaSelectors = [
+      // Q&A 탭 클릭 시도
+      const qaTabSelectors = [
         'button:has-text("문의")',
         'button:has-text("Q&A")',
         'a:has-text("문의")',
@@ -393,17 +430,22 @@ async function extractFromFrame(page, frame, frameIndex) {
         '.qna_tab_button',
         '[data-testid="qa-tab"]',
         '[class*="qa"]',
-        '[class*="qna"]'
+        '[class*="qna"]',
+        'button[data-tab="qa"]',
+        'a[data-tab="qa"]',
+        '.tab_qa',
+        '.tab-qa'
       ];
 
-      for (const selector of qaSelectors) {
+      let qaTabClicked = false;
+      for (const selector of qaTabSelectors) {
         try {
           const element = frame.locator(selector).first();
           const count = await element.count();
           if (count > 0) {
             await element.click();
-            console.log(`✅ iframe ${frameIndex} Q&A 탭 클릭 성공`);
-            await frame.waitForTimeout(2000);
+            console.log(`✅ iframe ${frameIndex} Q&A 탭 클릭 성공 (${selector})`);
+            qaTabClicked = true;
             break;
           }
         } catch (e) {
@@ -411,50 +453,64 @@ async function extractFromFrame(page, frame, frameIndex) {
         }
       }
 
-      const qaItemSelectors = [
-        '.qa_item',
-        '.qna_item',
-        '.qa-item',
-        '.qna-item',
-        '.qa_list .item',
-        '.qna_list .item',
-        '.qa_list_item',
-        '.qna_list_item',
-        '[class*="qa"]',
-        '[class*="qna"]'
-      ];
-
-      for (const selector of qaItemSelectors) {
+      if (qaTabClicked) {
+        // Q&A 아이템 로딩 대기
+        console.log(`⏳ iframe ${frameIndex} Q&A 아이템 로딩 대기 중...`);
         try {
-          const elements = await frame.locator(selector).all();
-          if (elements.length > 0) {
-            console.log(`📊 iframe ${frameIndex} ${elements.length}개의 Q&A 발견`);
-            
-            for (let i = 0; i < Math.min(elements.length, 10); i++) {
-              try {
-                const element = elements[i];
-                const question = await element.locator('.question, .qa_question, .qna_question').textContent().catch(() => '');
-                const answer = await element.locator('.answer, .qa_answer, .qna_answer').textContent().catch(() => '');
-                const author = await element.locator('.author, .qa_author, .qna_author').textContent().catch(() => '익명');
-                const date = await element.locator('.date, .qa_date, .qna_date').textContent().catch(() => '');
-
-                if (question && question.trim()) {
-                  result.qa.push({
-                    question: question.trim(),
-                    answer: answer ? answer.trim() : '',
-                    author: author || '익명',
-                    date: date || ''
-                  });
-                }
-              } catch (e) {
-                console.log(`❌ iframe ${frameIndex} Q&A ${i} 추출 실패:`, e.message);
-              }
-            }
-            break;
-          }
+          await frame.waitForSelector('.qa_item', { timeout: 5000 });
+          console.log(`✅ iframe ${frameIndex} Q&A 아이템 로딩 완료`);
         } catch (e) {
-          // 셀렉터 실패 시 다음 시도
+          console.log(`⚠️ iframe ${frameIndex} Q&A 아이템 로딩 타임아웃`);
         }
+
+        // Q&A 아이템 추출
+        const qaItemSelectors = [
+          '.qa_item',
+          '.qna_item',
+          '.qa-item',
+          '.qna-item',
+          '.qa_list .item',
+          '.qna_list .item',
+          '.qa_list_item',
+          '.qna_list_item',
+          '[class*="qa"]',
+          '[class*="qna"]'
+        ];
+
+        for (const selector of qaItemSelectors) {
+          try {
+            const elements = await frame.locator(selector).all();
+            if (elements.length > 0) {
+              console.log(`📊 iframe ${frameIndex} ${elements.length}개의 Q&A 발견`);
+              
+              for (let i = 0; i < Math.min(elements.length, 20); i++) {
+                try {
+                  const element = elements[i];
+                  const question = await element.locator('.question, .qa_question, .qna_question, .qna_title').textContent().catch(() => '');
+                  const answer = await element.locator('.answer, .qa_answer, .qna_answer, .qna_content').textContent().catch(() => '');
+                  const author = await element.locator('.author, .qa_author, .qna_author, .user_name').textContent().catch(() => '익명');
+                  const date = await element.locator('.date, .qa_date, .qna_date, .created_date').textContent().catch(() => '');
+
+                  if (question && question.trim()) {
+                    result.qa.push({
+                      question: question.trim(),
+                      answer: answer ? answer.trim() : '',
+                      author: author || '익명',
+                      date: date || ''
+                    });
+                  }
+                } catch (e) {
+                  console.log(`❌ iframe ${frameIndex} Q&A ${i} 추출 실패:`, e.message);
+                }
+              }
+              break;
+            }
+          } catch (e) {
+            // 셀렉터 실패 시 다음 시도
+          }
+        }
+      } else {
+        console.log(`⚠️ iframe ${frameIndex} Q&A 탭을 찾을 수 없음`);
       }
     } catch (e) {
       console.log(`❌ iframe ${frameIndex} Q&A 추출 실패:`, e.message);
@@ -497,7 +553,13 @@ app.post("/api/extract", async (req, res) => {
     inputUrl: url,
     finalUrl: null,
     httpStatus: null,
-    product: { name: null, price: null, image: null, summary: null },
+    product: { 
+      name: null, 
+      price: null, 
+      image: null, 
+      summary: null,
+      description: null  // 상품 상세설명 HTML
+    },
     reviews: [],
     qa: [],
     frames: [],
@@ -636,6 +698,7 @@ app.post("/api/extract", async (req, res) => {
           if (frameData.product.price) response.product.price = frameData.product.price;
           if (frameData.product.summary) response.product.summary = frameData.product.summary;
           if (frameData.product.image) response.product.image = frameData.product.image;
+          if (frameData.product.description) response.product.description = frameData.product.description;
           
           response.reviews.push(...frameData.reviews);
           response.qa.push(...frameData.qa);
@@ -725,6 +788,7 @@ app.post("/api/extract", async (req, res) => {
     console.log("  - 가격:", response.product.price);
     console.log("  - 요약:", response.product.summary);
     console.log("  - 이미지:", response.product.image);
+    console.log("  - 상품 상세설명:", response.product.description ? response.product.description.length + '자' : '없음');
     console.log("  - 리뷰 수:", response.reviews.length);
     console.log("  - Q&A 수:", response.qa.length);
     console.log("  - 총 iframe 수:", response.debug.totalFrames);
