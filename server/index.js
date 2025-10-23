@@ -1,3 +1,13 @@
+// index.js 맨 위에 추가
+if (typeof File === "undefined") {
+  global.File = class File extends Blob {
+    constructor(chunks, filename, options = {}) {
+      super(chunks, options);
+      this.name = filename;
+      this.lastModified = options.lastModified || Date.now();
+    }
+  };
+}
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
 import express from "express";
