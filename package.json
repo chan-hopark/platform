@@ -17,7 +17,10 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
+    "cheerio": "^1.0.0-rc.12",
+    "http-proxy-middleware": "^2.0.6",
+    "formdata-node": "^4.3.4",
+    "undici": "5.28.4"
   },
   "devDependencies": {
     "@types/react": "^18.0.28",

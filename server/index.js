@@ -1,4 +1,19 @@
 // index.js (네이버 스마트스토어 API 크롤러 - axios 기반)
+
+// File polyfill for Node.js v18 (Railway 환경)
+try {
+  const { File } = await import("formdata-node");
+  
+  // Global File polyfill for undici compatibility
+  if (typeof globalThis.File === 'undefined') {
+    globalThis.File = File;
+    console.log("✅ File polyfill 적용 완료");
+  }
+} catch (error) {
+  console.warn("⚠️ File polyfill 적용 실패:", error.message);
+  console.log("📝 undici 버전 고정으로 대체 시도");
+}
+
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -6,6 +21,8 @@ import path from "path";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { fileURLToPath } from "url";
+import http from "http";
+import https from "https";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,8 +66,8 @@ if (!NAVER_COOKIE) {
 // axios 인스턴스 생성 (성능 최적화)
 const axiosInstance = axios.create({
   timeout: 15000,
-  httpAgent: new (await import('http')).Agent({ keepAlive: true }),
-  httpsAgent: new (await import('https')).Agent({ keepAlive: true })
+  httpAgent: new http.Agent({ keepAlive: true }),
+  httpsAgent: new https.Agent({ keepAlive: true })
 });
 
 // 기본 헤더 설정
@@ -73,7 +90,12 @@ app.get("/api/health", (_req, res) => res.json({
   ts: Date.now(),
   environment: process.env.NODE_ENV || 'development',
   outdir: OUTDIR,
-  cookieSet: !!NAVER_COOKIE
+  cookieSet: !!NAVER_COOKIE,
+  userAgentSet: !!NAVER_USER_AGENT,
+  acceptSet: !!NAVER_ACCEPT,
+  acceptLanguageSet: !!NAVER_ACCEPT_LANGUAGE,
+  port: process.env.PORT || 3000,
+  nodeVersion: process.version
 }));
 
 // root -> React 앱 또는 fallback
@@ -109,11 +131,33 @@ async function extractChannelId(url) {
   try {
     console.log("🔍 HTML에서 channelId 추출 중...");
     
+    // Railway 환경에서 안전한 요청을 위한 추가 헤더
+    const safeHeaders = {
+      ...getDefaultHeaders(url),
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'cache-control': 'no-cache',
+      'pragma': 'no-cache',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'upgrade-insecure-requests': '1'
+    };
+    
     const response = await axiosInstance.get(url, {
-      headers: getDefaultHeaders(url)
+      headers: safeHeaders,
+      timeout: 30000, // 30초 타임아웃
+      maxRedirects: 5,
+      validateStatus: (status) => status < 500 // 5xx 에러만 제외
     });
     
     if (response.status !== 200) {
+      console.log(`⚠️ HTML 요청 상태: ${response.status}`);
+      if (response.status === 429) {
+        throw new Error("Rate limit exceeded. Please try again later.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access forbidden. Check cookies and user agent.");
+      }
       throw new Error(`HTML 요청 실패: ${response.status}`);
     }
     
@@ -493,12 +537,32 @@ app.post("/api/extract", async (req, res) => {
 
 // server listen
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
-  console.log(`📍 포트: ${PORT}`);
-  console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
-  console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📦 빌드 경로: ${buildPath}`);
-  console.log(`🍪 쿠키 설정: ${NAVER_COOKIE ? '✅ 설정됨' : '❌ 미설정'}`);
-  console.log(`✅ 서버 준비 완료!`);
-});
+
+// Railway 환경에서 안전한 서버 시작
+const startServer = () => {
+  try {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
+      console.log(`📍 포트: ${PORT}`);
+      console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
+      console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📦 빌드 경로: ${buildPath}`);
+      console.log(`🍪 쿠키 설정: ${NAVER_COOKIE ? '✅ 설정됨' : '❌ 미설정'}`);
+      console.log(`🔧 Node.js 버전: ${process.version}`);
+      console.log(`🌐 File polyfill: ${typeof globalThis.File !== 'undefined' ? '✅ 적용됨' : '❌ 미적용'}`);
+      console.log(`✅ 서버 준비 완료!`);
+    });
+  } catch (error) {
+    console.error("❌ 서버 시작 실패:", error);
+    process.exit(1);
+  }
+};
+
+// Railway 환경에서 안전한 시작
+if (process.env.NODE_ENV === 'production') {
+  // 프로덕션 환경에서는 즉시 시작
+  startServer();
+} else {
+  // 개발 환경에서는 약간의 지연 후 시작
+  setTimeout(startServer, 100);
+}

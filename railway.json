@@ -18,5 +18,13 @@
   },
   "deploy": {
     "startCommand": "npm start"
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "NODE_VERSION": "18.20.5"
+      }
+    }
   }
 }
