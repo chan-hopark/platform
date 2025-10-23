@@ -6,6 +6,11 @@
         "install": {
           "commands": [
             "npm install",
+            "npx playwright install --with-deps"
+          ]
+        },
+        "build": {
+          "commands": [
             "npm run build"
           ]
         }
