@@ -1,4 +1,4 @@
-// index.js (네이버 스마트스토어 iframe 크롤러 최적화 버전)
+// index.js (네이버 스마트스토어 iframe 크롤러 - iframe 내부 직접 접근)
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -55,9 +55,9 @@ app.get("/", (_req, res) => {
 });
 
 /**
- * 네이버 스마트스토어 iframe 내부 데이터 추출 함수 (강화된 디버깅)
+ * iframe 내부에서 상품 데이터 추출 (강화된 디버깅)
  */
-async function extractSmartStoreData(page, frame, frameIndex) {
+async function extractFromFrame(page, frame, frameIndex) {
   console.log(`🔍 iframe ${frameIndex} 내부 데이터 추출 시작`);
   
   const result = {
@@ -70,29 +70,50 @@ async function extractSmartStoreData(page, frame, frameIndex) {
     reviews: [],
     qa: [],
     debug: {
-      htmlSnippet: null,
-      allText: null,
-      foundSelectors: []
+      frameUrl: null,
+      htmlContent: null,
+      textContent: null,
+      foundElements: [],
+      errors: []
     }
   };
 
   try {
-    // iframe 내부 HTML 일부 가져오기 (디버깅용)
+    // iframe URL 확인
+    result.debug.frameUrl = frame.url();
+    console.log(`📍 iframe ${frameIndex} URL:`, result.debug.frameUrl);
+
+    // iframe 내부 HTML 전체 가져오기
     console.log(`📄 iframe ${frameIndex} HTML 내용 확인 중...`);
     try {
       const html = await frame.content();
-      result.debug.htmlSnippet = html.slice(0, 2000); // 처음 2000자만
-      console.log(`📄 iframe ${frameIndex} HTML 스니펫:`, result.debug.htmlSnippet);
+      result.debug.htmlContent = html;
+      console.log(`📄 iframe ${frameIndex} HTML 길이:`, html.length);
+      console.log(`📄 iframe ${frameIndex} HTML 처음 500자:`, html.slice(0, 500));
       
-      // 전체 텍스트도 확인
-      const allText = await frame.textContent('body');
-      result.debug.allText = allText ? allText.slice(0, 1000) : null;
-      console.log(`📄 iframe ${frameIndex} 전체 텍스트:`, result.debug.allText);
+      // HTML에서 특정 키워드 찾기
+      if (html.includes('상품명') || html.includes('가격') || html.includes('리뷰')) {
+        console.log(`✅ iframe ${frameIndex}에서 상품 관련 키워드 발견!`);
+      } else {
+        console.log(`⚠️ iframe ${frameIndex}에서 상품 관련 키워드 없음`);
+      }
     } catch (e) {
+      result.debug.errors.push(`HTML 읽기 실패: ${e.message}`);
       console.log(`❌ iframe ${frameIndex} HTML 읽기 실패:`, e.message);
     }
 
-    // 1. 상품명 추출 (네이버 스마트스토어 특화 셀렉터)
+    // iframe 내부 텍스트 내용 확인
+    try {
+      const textContent = await frame.textContent('body');
+      result.debug.textContent = textContent;
+      console.log(`📄 iframe ${frameIndex} 텍스트 길이:`, textContent ? textContent.length : 0);
+      console.log(`📄 iframe ${frameIndex} 텍스트 처음 300자:`, textContent ? textContent.slice(0, 300) : 'null');
+    } catch (e) {
+      result.debug.errors.push(`텍스트 읽기 실패: ${e.message}`);
+      console.log(`❌ iframe ${frameIndex} 텍스트 읽기 실패:`, e.message);
+    }
+
+    // 1. 상품명 추출 (다양한 셀렉터 시도)
     console.log(`📝 iframe ${frameIndex} 상품명 추출 시도 중...`);
     const nameSelectors = [
       // 네이버 스마트스토어 특화 셀렉터
@@ -130,7 +151,12 @@ async function extractSmartStoreData(page, frame, frameIndex) {
       '.product_name_text',
       '.goods_name_text',
       '.product_title_text',
-      '.goods_title_text'
+      '.goods_title_text',
+      // 추가 셀렉터
+      '[class*="product"] h1',
+      '[class*="goods"] h1',
+      '[class*="title"]',
+      '[class*="name"]'
     ];
 
     for (const selector of nameSelectors) {
@@ -141,7 +167,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           const text = await element.textContent();
           if (text && text.trim()) {
             result.product.name = text.trim();
-            result.debug.foundSelectors.push(`상품명: ${selector}`);
+            result.debug.foundElements.push(`상품명: ${selector} -> ${text.trim()}`);
             console.log(`✅ iframe ${frameIndex} 상품명 발견 (${selector}):`, result.product.name);
             break;
           }
@@ -151,7 +177,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
       }
     }
 
-    // 2. 가격 추출 (네이버 스마트스토어 특화 셀렉터)
+    // 2. 가격 추출 (다양한 셀렉터 시도)
     console.log(`💰 iframe ${frameIndex} 가격 추출 시도 중...`);
     const priceSelectors = [
       // 네이버 스마트스토어 특화 셀렉터
@@ -175,7 +201,15 @@ async function extractSmartStoreData(page, frame, frameIndex) {
       '.price_area .price',
       '.product_price_area .price',
       '.price_area',
-      '.product_price_area'
+      '.product_price_area',
+      // 추가 셀렉터
+      '[class*="price"]',
+      '[class*="cost"]',
+      '[class*="amount"]',
+      'span:contains("원")',
+      'div:contains("원")',
+      'span:contains("₩")',
+      'div:contains("₩")'
     ];
 
     for (const selector of priceSelectors) {
@@ -186,7 +220,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           const text = await element.textContent();
           if (text && text.trim()) {
             result.product.price = text.trim();
-            result.debug.foundSelectors.push(`가격: ${selector}`);
+            result.debug.foundElements.push(`가격: ${selector} -> ${text.trim()}`);
             console.log(`✅ iframe ${frameIndex} 가격 발견 (${selector}):`, result.product.price);
             break;
           }
@@ -208,7 +242,12 @@ async function extractSmartStoreData(page, frame, frameIndex) {
       '.product_summary_text',
       '.product_description_text',
       '.product_info_text',
-      '.goods_info_text'
+      '.goods_info_text',
+      // 추가 셀렉터
+      '[class*="summary"]',
+      '[class*="description"]',
+      '[class*="info"]',
+      '[class*="detail"]'
     ];
 
     for (const selector of summarySelectors) {
@@ -219,7 +258,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           const text = await element.textContent();
           if (text && text.trim()) {
             result.product.summary = text.trim();
-            result.debug.foundSelectors.push(`요약: ${selector}`);
+            result.debug.foundElements.push(`요약: ${selector} -> ${text.trim()}`);
             console.log(`✅ iframe ${frameIndex} 요약 발견 (${selector}):`, result.product.summary);
             break;
           }
@@ -239,7 +278,12 @@ async function extractSmartStoreData(page, frame, frameIndex) {
       '.product_main_image img',
       '.goods_main_image img',
       'img[alt*="상품"]',
-      'img[alt*="제품"]'
+      'img[alt*="제품"]',
+      // 추가 셀렉터
+      'img[src*="product"]',
+      'img[src*="goods"]',
+      'img[class*="product"]',
+      'img[class*="goods"]'
     ];
 
     for (const selector of imageSelectors) {
@@ -250,7 +294,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           const src = await element.getAttribute('src');
           if (src) {
             result.product.image = src;
-            result.debug.foundSelectors.push(`이미지: ${selector}`);
+            result.debug.foundElements.push(`이미지: ${selector} -> ${src}`);
             console.log(`✅ iframe ${frameIndex} 이미지 발견 (${selector}):`, result.product.image);
             break;
           }
@@ -263,13 +307,14 @@ async function extractSmartStoreData(page, frame, frameIndex) {
     // 5. 리뷰 데이터 추출
     console.log(`⭐ iframe ${frameIndex} 리뷰 데이터 추출 시도 중...`);
     try {
-      // 리뷰 버튼이나 탭 클릭 시도
+      // 리뷰 관련 셀렉터들
       const reviewSelectors = [
         'button:has-text("리뷰")',
         'a:has-text("리뷰")',
         '.review_tab',
         '.review_tab_button',
-        '[data-testid="review-tab"]'
+        '[data-testid="review-tab"]',
+        '[class*="review"]'
       ];
 
       for (const selector of reviewSelectors) {
@@ -279,7 +324,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           if (count > 0) {
             await element.click();
             console.log(`✅ iframe ${frameIndex} 리뷰 탭 클릭 성공`);
-            await frame.waitForTimeout(2000); // 로딩 대기
+            await frame.waitForTimeout(2000);
             break;
           }
         } catch (e) {
@@ -294,7 +339,8 @@ async function extractSmartStoreData(page, frame, frameIndex) {
         '.review_list .item',
         '.review_list_item',
         '.review_content',
-        '.review_text'
+        '.review_text',
+        '[class*="review"]'
       ];
 
       for (const selector of reviewItemSelectors) {
@@ -336,7 +382,6 @@ async function extractSmartStoreData(page, frame, frameIndex) {
     // 6. Q&A 데이터 추출
     console.log(`❓ iframe ${frameIndex} Q&A 데이터 추출 시도 중...`);
     try {
-      // Q&A 버튼이나 탭 클릭 시도
       const qaSelectors = [
         'button:has-text("문의")',
         'button:has-text("Q&A")',
@@ -346,7 +391,9 @@ async function extractSmartStoreData(page, frame, frameIndex) {
         '.qna_tab',
         '.qa_tab_button',
         '.qna_tab_button',
-        '[data-testid="qa-tab"]'
+        '[data-testid="qa-tab"]',
+        '[class*="qa"]',
+        '[class*="qna"]'
       ];
 
       for (const selector of qaSelectors) {
@@ -356,7 +403,7 @@ async function extractSmartStoreData(page, frame, frameIndex) {
           if (count > 0) {
             await element.click();
             console.log(`✅ iframe ${frameIndex} Q&A 탭 클릭 성공`);
-            await frame.waitForTimeout(2000); // 로딩 대기
+            await frame.waitForTimeout(2000);
             break;
           }
         } catch (e) {
@@ -364,7 +411,6 @@ async function extractSmartStoreData(page, frame, frameIndex) {
         }
       }
 
-      // Q&A 아이템 추출
       const qaItemSelectors = [
         '.qa_item',
         '.qna_item',
@@ -373,7 +419,9 @@ async function extractSmartStoreData(page, frame, frameIndex) {
         '.qa_list .item',
         '.qna_list .item',
         '.qa_list_item',
-        '.qna_list_item'
+        '.qna_list_item',
+        '[class*="qa"]',
+        '[class*="qna"]'
       ];
 
       for (const selector of qaItemSelectors) {
@@ -413,11 +461,20 @@ async function extractSmartStoreData(page, frame, frameIndex) {
     }
 
     console.log(`🎉 iframe ${frameIndex} 데이터 추출 완료`);
-    console.log(`📊 iframe ${frameIndex} 추출 결과:`, JSON.stringify(result, null, 2));
+    console.log(`📊 iframe ${frameIndex} 추출 결과:`, {
+      name: result.product.name,
+      price: result.product.price,
+      summary: result.product.summary,
+      image: result.product.image,
+      reviews: result.reviews.length,
+      qa: result.qa.length,
+      foundElements: result.debug.foundElements.length
+    });
     
     return result;
   } catch (e) {
     console.log(`❌ iframe ${frameIndex} 데이터 추출 실패:`, e.message);
+    result.debug.errors.push(`전체 추출 실패: ${e.message}`);
     return result;
   }
 }
@@ -554,15 +611,16 @@ app.post("/api/extract", async (req, res) => {
         name: frameName,
         hasData: false,
         debug: {
-          htmlSnippet: null,
-          allText: null,
-          foundSelectors: []
+          htmlContent: null,
+          textContent: null,
+          foundElements: [],
+          errors: []
         }
       };
       
       try {
         // iframe 내부에서 데이터 추출 (강화된 디버깅)
-        const frameData = await extractSmartStoreData(page, frame, i);
+        const frameData = await extractFromFrame(page, frame, i);
         
         // 디버깅 정보 저장
         frameInfo.debug = frameData.debug;
@@ -592,8 +650,8 @@ app.post("/api/extract", async (req, res) => {
           });
         } else {
           console.log(`⚠️ iframe ${i}에서 유용한 데이터를 찾지 못함`);
-          console.log(`📄 iframe ${i} HTML 스니펫:`, frameData.debug.htmlSnippet);
-          console.log(`📄 iframe ${i} 전체 텍스트:`, frameData.debug.allText);
+          console.log(`📄 iframe ${i} HTML 스니펫:`, frameData.debug.htmlContent ? frameData.debug.htmlContent.slice(0, 500) : 'null');
+          console.log(`📄 iframe ${i} 텍스트 스니펫:`, frameData.debug.textContent ? frameData.debug.textContent.slice(0, 300) : 'null');
         }
         
         // HTML 저장 (디버깅용)
@@ -677,9 +735,10 @@ app.post("/api/extract", async (req, res) => {
       console.log(`📊 iframe ${index} 디버깅 정보:`);
       console.log(`  - URL: ${frame.url}`);
       console.log(`  - 데이터 있음: ${frame.hasData}`);
-      console.log(`  - 발견된 셀렉터: ${frame.debug.foundSelectors.join(', ')}`);
-      if (frame.debug.htmlSnippet) {
-        console.log(`  - HTML 스니펫: ${frame.debug.htmlSnippet.slice(0, 200)}...`);
+      console.log(`  - 발견된 요소: ${frame.debug.foundElements.join(', ')}`);
+      console.log(`  - 오류: ${frame.debug.errors.join(', ')}`);
+      if (frame.debug.htmlContent) {
+        console.log(`  - HTML 스니펫: ${frame.debug.htmlContent.slice(0, 200)}...`);
       }
     });
     
