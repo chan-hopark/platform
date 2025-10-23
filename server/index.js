@@ -1,16 +1,23 @@
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
-// Node.js v18+ 전역 객체 polyfill (undici 호환성)
-import { Blob, File } from 'node:buffer';
-
-if (!globalThis.File) {
-  globalThis.File = File;
-  console.log("✅ File polyfill 적용 완료");
-}
-
-if (!globalThis.Blob) {
-  globalThis.Blob = Blob;
-  console.log("✅ Blob polyfill 적용 완료");
+// Node.js 18 File polyfill (undici 호환성)
+if (typeof globalThis.File === 'undefined') {
+  // Blob이 없으면 먼저 polyfill
+  if (typeof globalThis.Blob === 'undefined') {
+    const { Blob } = require('node:buffer');
+    globalThis.Blob = Blob;
+  }
+  
+  // File polyfill (Blob 상속)
+  globalThis.File = class File extends globalThis.Blob {
+    constructor(chunks, filename, options = {}) {
+      super(chunks, options);
+      this.name = filename || '';
+      this.lastModified = options.lastModified || Date.now();
+    }
+  };
+  
+  console.log("✅ File polyfill 적용 완료 (Node.js 18 호환)");
 }
 
 import express from "express";
