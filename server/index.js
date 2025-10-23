@@ -30,6 +30,7 @@ import { fileURLToPath } from "url";
 import http from "http";
 import https from "https";
 import fetch from "node-fetch";
+import { chromium } from "playwright";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,10 +69,25 @@ try {
 }
 
 // 환경변수 확인
-const NAVER_COOKIE = process.env.NAVER_COOKIE;
+let NAVER_COOKIE = process.env.NAVER_COOKIE;
 const NAVER_USER_AGENT = process.env.NAVER_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 const NAVER_ACCEPT = process.env.NAVER_ACCEPT || "application/json, text/plain, */*";
 const NAVER_ACCEPT_LANGUAGE = process.env.NAVER_ACCEPT_LANGUAGE || "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7";
+
+// 쿠키 갱신 관련 변수
+let lastCookieUpdate = 0;
+const COOKIE_UPDATE_INTERVAL = 6 * 60 * 60 * 1000; // 6시간
+
+// User-Agent 로테이션
+const userAgents = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15"
+];
+
+let currentUserAgentIndex = 0;
 
 if (!NAVER_COOKIE) {
   console.log("⚠️ NAVER_COOKIE 환경변수가 설정되지 않았습니다.");
@@ -85,10 +101,82 @@ const fetchOptions = {
   agent: new https.Agent({ keepAlive: true })
 };
 
-// 기본 헤더 설정
+// 자동 쿠키 갱신 함수 (로그인 없이)
+async function refreshNaverCookie() {
+  try {
+    console.log("🔄 자동 쿠키 갱신 시작 (로그인 없이)...");
+    
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    
+    // User-Agent 로테이션 사용
+    const currentUserAgent = getNextUserAgent();
+    
+    const context = await browser.newContext({
+      userAgent: currentUserAgent
+    });
+    
+    const page = await context.newPage();
+    
+    // 스마트스토어 메인 페이지 방문
+    await page.goto('https://smartstore.naver.com');
+    
+    // 잠시 대기 (쿠키 설정 시간)
+    await page.waitForTimeout(2000);
+    
+    // 쿠키 추출
+    const cookies = await context.cookies();
+    const cookieString = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+    
+    if (cookieString) {
+      NAVER_COOKIE = cookieString;
+      lastCookieUpdate = Date.now();
+      console.log("✅ 쿠키 자동 갱신 완료 (로그인 없이)");
+      console.log(`📄 새 쿠키 길이: ${cookieString.length} 문자`);
+      console.log(`🔄 사용된 User-Agent: ${currentUserAgent.substring(0, 50)}...`);
+      return true;
+    } else {
+      console.log("❌ 쿠키 추출 실패");
+      return false;
+    }
+    
+  } catch (error) {
+    console.log("❌ 쿠키 자동 갱신 실패:", error.message);
+    return false;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+// User-Agent 로테이션 함수
+function getNextUserAgent() {
+  const userAgent = userAgents[currentUserAgentIndex];
+  currentUserAgentIndex = (currentUserAgentIndex + 1) % userAgents.length;
+  console.log(`🔄 User-Agent 로테이션: ${userAgent.substring(0, 50)}...`);
+  return userAgent;
+}
+
+// 쿠키 갱신 필요 여부 확인
+async function checkAndRefreshCookie() {
+  const now = Date.now();
+  
+  // 주기적 갱신 (6시간마다)
+  if (now - lastCookieUpdate > COOKIE_UPDATE_INTERVAL) {
+    console.log("⏰ 주기적 쿠키 갱신 시도");
+    return await refreshNaverCookie();
+  }
+  
+  return false;
+}
+
+// 기본 헤더 설정 (User-Agent 로테이션 포함)
 const getDefaultHeaders = (referer) => ({
   'cookie': NAVER_COOKIE,
-  'user-agent': NAVER_USER_AGENT,
+  'user-agent': getNextUserAgent(),
   'accept': NAVER_ACCEPT,
   'referer': referer,
   'accept-language': NAVER_ACCEPT_LANGUAGE,
@@ -136,14 +224,23 @@ function extractProductId(url) {
 }
 
 /**
- * channelId 추출 (다중 방법 시도)
+ * channelId 추출 (다중 방법 시도) - 강화된 디버깅
  */
-async function extractChannelId(url) {
+async function extractChannelId(url, debugInfo = {}) {
   console.log("🔍 channelId 추출 시작...");
+  
+  const triedMethods = [];
+  const errors = [];
+  let successMethod = null;
+  let apiStatus = null;
+  let htmlChecked = null;
+  let urlPatterns = null;
   
   // 1차 시도: API를 통한 직접 추출 (가장 안정적)
   try {
     console.log("🔄 1차 시도: API를 통한 channelId 추출");
+    triedMethods.push("API");
+    
     const productId = extractProductId(url);
     if (productId) {
       const apiUrl = `https://smartstore.naver.com/i/v2/products/${productId}`;
@@ -155,9 +252,10 @@ async function extractChannelId(url) {
         ...fetchOptions
       });
       
-      console.log(`📊 API 응답 상태: ${apiResponse.status}`);
+      apiStatus = apiResponse.status;
+      console.log(`📊 API 응답 상태: ${apiStatus}`);
       
-      if (apiResponse.status === 200) {
+      if (apiStatus === 200) {
         const data = await apiResponse.json();
         console.log(`📄 API 응답 키들:`, Object.keys(data));
         
@@ -176,22 +274,32 @@ async function extractChannelId(url) {
         
         if (channelId) {
           console.log(`✅ API에서 channelId 발견: ${channelId}`);
+          successMethod = "API";
+          debugInfo.triedMethods = triedMethods;
+          debugInfo.successMethod = successMethod;
+          debugInfo.apiStatus = apiStatus;
           return channelId;
         }
         
         console.log("⚠️ API 응답에 channelId가 없습니다.");
         console.log("📄 API 응답 샘플:", JSON.stringify(data).substring(0, 500));
+        errors.push("API 응답에 channelId 없음");
       } else {
-        console.log(`⚠️ API 요청 실패: ${apiResponse.status}`);
+        console.log(`⚠️ API 요청 실패: ${apiStatus}`);
+        errors.push(`API 요청 실패: ${apiStatus}`);
       }
+    } else {
+      errors.push("productId 추출 실패");
     }
   } catch (apiError) {
     console.log("❌ API 요청 실패:", apiError.message);
+    errors.push(`API 요청 실패: ${apiError.message}`);
   }
   
   // 2차 시도: HTML에서 추출
   try {
     console.log("🔄 2차 시도: HTML에서 channelId 추출");
+    triedMethods.push("HTML");
     
     const safeHeaders = {
       ...getDefaultHeaders(url),
@@ -212,6 +320,7 @@ async function extractChannelId(url) {
     
     if (response.status === 200) {
       const html = await response.text();
+      htmlChecked = { length: html.length, patterns: 0 };
       const $ = cheerio.load(html);
       
       // 다양한 패턴으로 channelId 찾기
@@ -224,6 +333,8 @@ async function extractChannelId(url) {
         /channelId=([a-zA-Z0-9_-]+)/
       ];
       
+      let foundPatterns = 0;
+      
       // script 태그에서 찾기
       const scripts = $('script').toArray();
       for (const script of scripts) {
@@ -233,6 +344,10 @@ async function extractChannelId(url) {
             const match = content.match(pattern);
             if (match) {
               console.log(`✅ HTML에서 channelId 발견: ${match[1]}`);
+              successMethod = "HTML";
+              debugInfo.triedMethods = triedMethods;
+              debugInfo.successMethod = successMethod;
+              debugInfo.htmlChecked = { ...htmlChecked, patterns: foundPatterns + 1 };
               return match[1];
             }
           }
@@ -248,6 +363,10 @@ async function extractChannelId(url) {
             const match = content.match(pattern);
             if (match) {
               console.log(`✅ meta 태그에서 channelId 발견: ${match[1]}`);
+              successMethod = "HTML";
+              debugInfo.triedMethods = triedMethods;
+              debugInfo.successMethod = successMethod;
+              debugInfo.htmlChecked = { ...htmlChecked, patterns: foundPatterns + 1 };
               return match[1];
             }
           }
@@ -255,35 +374,47 @@ async function extractChannelId(url) {
       }
       
       console.log("⚠️ HTML에서 channelId를 찾을 수 없습니다.");
+      errors.push("HTML에서 channelId 패턴 없음");
     } else {
       console.log(`⚠️ HTML 요청 실패: ${response.status}`);
+      errors.push(`HTML 요청 실패: ${response.status}`);
     }
   } catch (htmlError) {
     console.log("❌ HTML 파싱 실패:", htmlError.message);
+    errors.push(`HTML 파싱 실패: ${htmlError.message}`);
   }
   
   // 3차 시도: URL에서 직접 추출
   try {
     console.log("🔄 3차 시도: URL에서 channelId 추출");
+    triedMethods.push("URL");
     
     // URL에서 channelId 패턴 찾기
-    const urlPatterns = [
+    const urlPatternsList = [
       /\/channels\/([a-zA-Z0-9_-]+)\/products/,
       /channelId=([a-zA-Z0-9_-]+)/,
       /channel=([a-zA-Z0-9_-]+)/
     ];
     
-    for (const pattern of urlPatterns) {
+    urlPatterns = { checked: urlPatternsList.length, found: 0 };
+    
+    for (const pattern of urlPatternsList) {
       const match = url.match(pattern);
       if (match) {
         console.log(`✅ URL에서 channelId 발견: ${match[1]}`);
+        successMethod = "URL";
+        debugInfo.triedMethods = triedMethods;
+        debugInfo.successMethod = successMethod;
+        debugInfo.urlPatterns = { ...urlPatterns, found: 1 };
         return match[1];
       }
     }
     
     console.log("⚠️ URL에서 channelId를 찾을 수 없습니다.");
+    errors.push("URL에서 channelId 패턴 없음");
   } catch (urlError) {
     console.log("❌ URL 파싱 실패:", urlError.message);
+    errors.push(`URL 파싱 실패: ${urlError.message}`);
   }
   
   console.log("❌ 모든 방법으로 channelId 추출 실패");
@@ -295,11 +426,20 @@ async function extractChannelId(url) {
   console.log("  1. Railway Variables에서 NAVER_COOKIE 갱신");
   console.log("  2. NAVER_USER_AGENT 최신 브라우저 값으로 업데이트");
   console.log("  3. 간단한 URL로 테스트 (쿼리 파라미터 제거)");
+  
+  // debug 정보 저장
+  debugInfo.triedMethods = triedMethods;
+  debugInfo.successMethod = successMethod;
+  debugInfo.errors = errors;
+  debugInfo.apiStatus = apiStatus;
+  debugInfo.htmlChecked = htmlChecked;
+  debugInfo.urlPatterns = urlPatterns;
+  
   return null;
 }
 
 /**
- * 상품 정보 API 호출
+ * 상품 정보 API 호출 (자동 쿠키 갱신 포함)
  */
 async function getProductInfo(channelId, productId, originalUrl) {
   try {
@@ -315,6 +455,32 @@ async function getProductInfo(channelId, productId, originalUrl) {
     });
     
     console.log(`📊 상품 API 응답: ${response.status}`);
+    
+    // 401, 403, 429 에러 시 자동 쿠키 갱신 시도
+    if ([401, 403, 429].includes(response.status)) {
+      console.log(`🔄 ${response.status} 에러 감지, 자동 쿠키 갱신 시도...`);
+      const refreshSuccess = await refreshNaverCookie();
+      
+      if (refreshSuccess) {
+        console.log("🔄 쿠키 갱신 후 재시도...");
+        const retryResponse = await fetch(apiUrl, {
+          method: 'GET',
+          headers: getDefaultHeaders(originalUrl),
+          ...fetchOptions
+        });
+        
+        if (retryResponse.status === 200) {
+          const data = await retryResponse.json();
+          console.log(`📄 상품 API 응답 크기: ${JSON.stringify(data).length} 문자`);
+          
+          return {
+            success: true,
+            data: data.product || {},
+            rawData: data
+          };
+        }
+      }
+    }
     
     if (response.status === 200) {
       const data = await response.json();
@@ -527,12 +693,21 @@ app.post("/api/extract", async (req, res) => {
       }
     }
 
-    // 3. channelId 추출
+    // 3. 주기적 쿠키 갱신 확인
+    await checkAndRefreshCookie();
+    
+    // 4. channelId 추출 (강화된 디버깅)
     console.log("🔍 channelId 추출 중...");
-    const channelId = await extractChannelId(url);
+    const debugInfo = {};
+    const channelId = await extractChannelId(url, debugInfo);
     if (!channelId) {
-      response.error = "channelId 추출 실패";
-      response.debug.errors.push("HTML에서 channelId를 찾을 수 없습니다. 세션/쿠키 갱신이 필요할 수 있습니다.");
+      response.error = "❌ 모든 방법으로 channelId 추출 실패";
+      response.debug.errors = debugInfo.errors || ["❌ 모든 방법으로 channelId 추출 실패"];
+      response.debug.triedMethods = debugInfo.triedMethods;
+      response.debug.successMethod = debugInfo.successMethod;
+      response.debug.apiStatus = debugInfo.apiStatus;
+      response.debug.htmlChecked = debugInfo.htmlChecked;
+      response.debug.urlPatterns = debugInfo.urlPatterns;
       return res.status(200).json(response);
     }
     response.channelId = channelId;
