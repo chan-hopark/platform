@@ -1,6 +1,24 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "NIXPACKS",
+    "nixpacksPlan": {
+      "phases": {
+        "setup": {
+          "nixPkgs": ["nodejs_20", "npm"]
+        },
+        "install": {
+          "cmds": [
+            "npm ci",
+            "npx playwright install chromium --with-deps"
+          ]
+        },
+        "build": {
+          "cmds": [
+            "npm run build"
+          ]
+        }
+      }
+    }
   },
   "deploy": {
     "startCommand": "npm start",
