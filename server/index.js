@@ -1,4 +1,4 @@
-// index.js (Railway 최적화 버전)
+// index.js (네이버 스마트스토어 iframe 크롤러 최적화 버전)
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -46,13 +46,367 @@ app.get("/", (_req, res) => {
   if (fs.existsSync(buildPath)) {
     res.sendFile(path.join(buildPath, "index.html"));
   } else {
-    res.type("text").send(
-      "🚀 Playwright 크롤러 API 실행 중\n\n" +
+  res.type("text").send(
+      "🚀 네이버 스마트스토어 크롤러 API 실행 중\n\n" +
       "POST JSON {\"url\":\"...\"} to /api/extract to run crawler.\n\n" +
       "빌드된 프론트엔드가 없습니다. npm run build를 실행하세요."
     );
   }
 });
+
+/**
+ * 네이버 스마트스토어 iframe 내부 데이터 추출 함수
+ */
+async function extractSmartStoreData(page, frame) {
+  console.log("🔍 iframe 내부 데이터 추출 시작");
+  
+  const result = {
+    product: {
+      name: null,
+      price: null,
+      summary: null,
+      image: null
+    },
+    reviews: [],
+    qa: []
+  };
+
+  try {
+    // 1. 상품명 추출
+    console.log("📝 상품명 추출 시도 중...");
+    const nameSelectors = [
+      'h1', 'h2', 'h3',
+      '._1SY6k',
+      '[data-testid="product-title"]',
+      '.product_title',
+      '.productName',
+      '.goods_name',
+      '.product_name',
+      '.product_title_text',
+      '.product_name_text',
+      '.product_info h1',
+      '.product_detail h1',
+      '.product_name_area h1',
+      '.product_title_area h1',
+      '.product_name_area h3',
+      '.product_title_area h3',
+      '.product_title',
+      '.product_name',
+      '.goods_title',
+      '.goods_name',
+      '.product_name_text',
+      '.goods_name_text',
+      '.product_title_text',
+      '.goods_title_text'
+    ];
+
+    for (const selector of nameSelectors) {
+      try {
+        const element = await frame.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.trim()) {
+            result.product.name = text.trim();
+            console.log("✅ 상품명 발견:", result.product.name);
+            break;
+          }
+        }
+      } catch (e) {
+        // 셀렉터 실패 시 다음 시도
+      }
+    }
+
+    // 2. 가격 추출
+    console.log("💰 가격 추출 시도 중...");
+    const priceSelectors = [
+      '.price',
+      '.product_price',
+      '.goods_price',
+      '[data-testid="price"]',
+      '.price_value',
+      '.price_text',
+      '.price_number',
+      '.product_price_text',
+      '.price_area .price',
+      '.product_price_area .price',
+      '.price_area',
+      '.product_price_area',
+      '.price_value',
+      '.price_text',
+      '.price_number',
+      '.product_price_text',
+      '.price_area .price',
+      '.product_price_area .price',
+      '.price_area',
+      '.product_price_area',
+      '.price_value',
+      '.price_text',
+      '.price_number',
+      '.product_price_text',
+      '.price_area .price',
+      '.product_price_area .price',
+      '.price_area',
+      '.product_price_area',
+      '.price_text',
+      '.price_number',
+      '.product_price_text',
+      '.price_area .price',
+      '.product_price_area .price',
+      '.price_area',
+      '.product_price_area'
+    ];
+
+    for (const selector of priceSelectors) {
+      try {
+        const element = await frame.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.trim()) {
+            result.product.price = text.trim();
+            console.log("✅ 가격 발견:", result.product.price);
+            break;
+          }
+        }
+      } catch (e) {
+        // 셀렉터 실패 시 다음 시도
+      }
+    }
+
+    // 3. 요약 정보 추출
+    console.log("📄 요약 정보 추출 시도 중...");
+    const summarySelectors = [
+      '.product_summary',
+      '.goods_summary',
+      '.product_description',
+      '.goods_description',
+      '.product_info',
+      '.product_detail',
+      '.product_summary_text',
+      '.product_description_text',
+      '.product_summary',
+      '.goods_summary',
+      '.product_description',
+      '.goods_description',
+      '.product_info',
+      '.product_detail',
+      '.product_summary_text',
+      '.product_description_text',
+      '.product_info_text',
+      '.goods_info_text'
+    ];
+
+    for (const selector of summarySelectors) {
+      try {
+        const element = await frame.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.trim()) {
+            result.product.summary = text.trim();
+            console.log("✅ 요약 발견:", result.product.summary);
+            break;
+          }
+        }
+      } catch (e) {
+        // 셀렉터 실패 시 다음 시도
+      }
+    }
+
+    // 4. 이미지 추출
+    console.log("🖼️ 이미지 추출 시도 중...");
+    const imageSelectors = [
+      '.product_image img',
+      '.goods_image img',
+      '.product_thumb img',
+      '.goods_thumb img',
+      '.product_main_image img',
+      '.goods_main_image img',
+      'img[alt*="상품"]',
+      'img[alt*="제품"]',
+      '.product_image img',
+      '.goods_image img',
+      '.product_thumb img',
+      '.goods_thumb img',
+      '.product_main_image img',
+      '.goods_main_image img',
+      'img[alt*="상품"]',
+      'img[alt*="제품"]'
+    ];
+
+    for (const selector of imageSelectors) {
+      try {
+        const element = await frame.locator(selector).first();
+        if (await element.count() > 0) {
+          const src = await element.getAttribute('src');
+          if (src) {
+            result.product.image = src;
+            console.log("✅ 이미지 발견:", result.product.image);
+            break;
+          }
+        }
+      } catch (e) {
+        // 셀렉터 실패 시 다음 시도
+      }
+    }
+
+    // 5. 리뷰 데이터 추출
+    console.log("⭐ 리뷰 데이터 추출 시도 중...");
+    try {
+      // 리뷰 버튼이나 탭 클릭 시도
+      const reviewSelectors = [
+        'button:has-text("리뷰")',
+        'a:has-text("리뷰")',
+        '.review_tab',
+        '.review_tab_button',
+        '[data-testid="review-tab"]'
+      ];
+
+      for (const selector of reviewSelectors) {
+        try {
+          const element = await frame.locator(selector).first();
+          if (await element.count() > 0) {
+            await element.click();
+            console.log("✅ 리뷰 탭 클릭 성공");
+            await frame.waitForTimeout(2000); // 로딩 대기
+            break;
+          }
+        } catch (e) {
+          // 클릭 실패 시 다음 시도
+        }
+      }
+
+      // 리뷰 아이템 추출
+      const reviewItemSelectors = [
+        '.review_item',
+        '.review-item',
+        '.review_list .item',
+        '.review_list_item',
+        '.review_content',
+        '.review_text'
+      ];
+
+      for (const selector of reviewItemSelectors) {
+        try {
+          const elements = await frame.locator(selector).all();
+          if (elements.length > 0) {
+            console.log(`📊 ${elements.length}개의 리뷰 발견`);
+            
+            for (let i = 0; i < Math.min(elements.length, 10); i++) {
+              try {
+                const element = elements[i];
+                const author = await element.locator('.review_author, .author, .reviewer').textContent().catch(() => '익명');
+                const rating = await element.locator('.rating, .star, .score').textContent().catch(() => '');
+                const content = await element.locator('.review_content, .content, .text').textContent().catch(() => '');
+                const date = await element.locator('.date, .review_date').textContent().catch(() => '');
+
+                if (content && content.trim()) {
+                  result.reviews.push({
+                    author: author || '익명',
+                    rating: rating || '',
+                    content: content.trim(),
+                    date: date || ''
+                  });
+                }
+              } catch (e) {
+                console.log(`❌ 리뷰 ${i} 추출 실패:`, e.message);
+              }
+            }
+            break;
+          }
+        } catch (e) {
+          // 셀렉터 실패 시 다음 시도
+        }
+      }
+    } catch (e) {
+      console.log("❌ 리뷰 추출 실패:", e.message);
+    }
+
+    // 6. Q&A 데이터 추출
+    console.log("❓ Q&A 데이터 추출 시도 중...");
+    try {
+      // Q&A 버튼이나 탭 클릭 시도
+      const qaSelectors = [
+        'button:has-text("문의")',
+        'button:has-text("Q&A")',
+        'a:has-text("문의")',
+        'a:has-text("Q&A")',
+        '.qa_tab',
+        '.qna_tab',
+        '.qa_tab_button',
+        '.qna_tab_button',
+        '[data-testid="qa-tab"]'
+      ];
+
+      for (const selector of qaSelectors) {
+        try {
+          const element = await frame.locator(selector).first();
+          if (await element.count() > 0) {
+            await element.click();
+            console.log("✅ Q&A 탭 클릭 성공");
+            await frame.waitForTimeout(2000); // 로딩 대기
+            break;
+          }
+        } catch (e) {
+          // 클릭 실패 시 다음 시도
+        }
+      }
+
+      // Q&A 아이템 추출
+      const qaItemSelectors = [
+        '.qa_item',
+        '.qna_item',
+        '.qa-item',
+        '.qna-item',
+        '.qa_list .item',
+        '.qna_list .item',
+        '.qa_list_item',
+        '.qna_list_item'
+      ];
+
+      for (const selector of qaItemSelectors) {
+        try {
+          const elements = await frame.locator(selector).all();
+          if (elements.length > 0) {
+            console.log(`📊 ${elements.length}개의 Q&A 발견`);
+            
+            for (let i = 0; i < Math.min(elements.length, 10); i++) {
+              try {
+                const element = elements[i];
+                const question = await element.locator('.question, .qa_question, .qna_question').textContent().catch(() => '');
+                const answer = await element.locator('.answer, .qa_answer, .qna_answer').textContent().catch(() => '');
+                const author = await element.locator('.author, .qa_author, .qna_author').textContent().catch(() => '익명');
+                const date = await element.locator('.date, .qa_date, .qna_date').textContent().catch(() => '');
+
+                if (question && question.trim()) {
+                  result.qa.push({
+                    question: question.trim(),
+                    answer: answer ? answer.trim() : '',
+                    author: author || '익명',
+                    date: date || ''
+                  });
+                }
+              } catch (e) {
+                console.log(`❌ Q&A ${i} 추출 실패:`, e.message);
+              }
+            }
+            break;
+          }
+        } catch (e) {
+          // 셀렉터 실패 시 다음 시도
+        }
+      }
+    } catch (e) {
+      console.log("❌ Q&A 추출 실패:", e.message);
+    }
+
+    console.log("🎉 iframe 데이터 추출 완료");
+    console.log("📊 추출 결과:", JSON.stringify(result, null, 2));
+    
+    return result;
+  } catch (e) {
+    console.log("❌ iframe 데이터 추출 실패:", e.message);
+    return result;
+  }
+}
 
 /**
  * POST /api/extract
@@ -64,26 +418,28 @@ app.post("/api/extract", async (req, res) => {
   const { url } = req.body || {};
   if (!url) return res.status(200).json({ ok: false, reason: "NO_URL_PROVIDED" });
 
-  console.log("🚀 크롤링 시작:", url);
+  console.log("🚀 네이버 스마트스토어 크롤링 시작:", url);
 
-  // debug diag object that will be returned
-  const diag = {
+  // 응답 데이터 구조
+  const response = {
     ok: false,
     inputUrl: url,
     finalUrl: null,
     httpStatus: null,
-    metas: {},
     product: { name: null, price: null, image: null, summary: null },
+    reviews: [],
+    qa: [],
     frames: [],
-    networkSamples: [],
-    console: [],
-    pageErrors: [],
-    requestFailed: [],
-    savedFiles: [],
     steps: [],
     durationMs: null,
     error: null,
     errorDetails: null,
+    debug: {
+      console: [],
+      pageErrors: [],
+      requestFailed: [],
+      savedFiles: []
+    }
   };
 
   let browser = null;
@@ -91,7 +447,7 @@ app.post("/api/extract", async (req, res) => {
 
   try {
     console.log("📱 브라우저 실행 중...");
-    diag.steps.push("launch");
+    response.steps.push("launch");
     const headlessEnv = (process.env.HEADLESS ?? "true").toLowerCase();
     const headless = headlessEnv === "true";
 
@@ -116,8 +472,7 @@ app.post("/api/extract", async (req, res) => {
     console.log("✅ 브라우저 실행 완료");
 
     const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116 Safari/537.36",
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116 Safari/537.36",
       locale: "ko-KR",
       timezoneId: "Asia/Seoul",
       viewport: { width: 1366, height: 800 },
@@ -130,358 +485,122 @@ app.post("/api/extract", async (req, res) => {
     page = await context.newPage();
     console.log("📄 새 페이지 생성 완료");
 
-    // console logs
+    // 이벤트 리스너 설정
     page.on("console", (m) => {
       const s = `[${m.type()}] ${m.text()}`;
-      if (diag.console.length < 200) diag.console.push(s);
+      if (response.debug.console.length < 200) response.debug.console.push(s);
       console.log("PAGE_CONSOLE:", s);
     });
     page.on("pageerror", (err) => {
       const s = String(err?.message || err);
-      diag.pageErrors.push(s);
+      response.debug.pageErrors.push(s);
       console.error("PAGE_ERROR:", s);
     });
     page.on("requestfailed", (r) => {
-      diag.requestFailed.push({ url: r.url(), err: r.failure()?.errorText || null });
+      response.debug.requestFailed.push({ url: r.url(), err: r.failure()?.errorText || null });
       console.warn("REQUEST_FAILED:", r.url(), r.failure()?.errorText || null);
     });
 
-    // sample network responses capture (limited)
-    page.on("response", async (resp) => {
-      try {
-        const u = resp.url();
-        // 관심 요청 패턴
-        if (/review|qna|product|goods|detail|api|graphql|search/i.test(u)) {
-          const st = resp.status();
-          if (diag.networkSamples.length < 40) {
-            const item = { url: u.slice(0, 1000), status: st };
-            // try to capture small body snippets for JSON responses
-            const ct = resp.headers()["content-type"] || "";
-            if (/application\/json|json/i.test(ct)) {
-              try {
-                const text = await resp.text();
-                item.bodySnippet = text.slice(0, 2000);
-                // save full JSON response to disk (capped)
-                const fname = path.join(OUTDIR, `resp-${Date.now()}.json`);
-                try {
-                  fs.writeFileSync(fname, text.slice(0, 2_000_000)); // 2MB cap
-                  item.saved = fname;
-                  diag.savedFiles.push(fname);
-                } catch (e) {}
-              } catch (e) {
-                item.bodySnippet = "<<unreadable json>>";
-              }
-            } else {
-              item.bodySnippet = `content-type:${ct}`;
-            }
-            diag.networkSamples.push(item);
-            console.log("NET_SAMPLE:", item.url, item.status);
-          }
-        }
-      } catch (e) {
-        console.warn("response handler err", e?.message || e);
-      }
-    });
-
     console.log("🌐 페이지 로딩 중...");
-    diag.steps.push("goto");
+    response.steps.push("goto");
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-    diag.httpStatus = resp ? resp.status() : null;
-    console.log("✅ 페이지 로딩 완료, HTTP 상태:", diag.httpStatus);
+    response.httpStatus = resp ? resp.status() : null;
+    console.log("✅ 페이지 로딩 완료, HTTP 상태:", response.httpStatus);
     
     console.log("⏳ 네트워크 대기 중...");
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-    diag.finalUrl = page.url();
-    console.log("📍 최종 URL:", diag.finalUrl);
+    response.finalUrl = page.url();
+    console.log("📍 최종 URL:", response.finalUrl);
 
     // JavaScript 렌더링 대기
     console.log("⏳ 동적 콘텐츠 렌더링 대기 중...");
     await page.waitForTimeout(3000);
 
-    // read some metas safely
-    console.log("📋 메타데이터 추출 중...");
-    diag.steps.push("read-metas");
-    const safeAttr = async (locator) => {
-      try {
-        return await page.locator(locator).getAttribute("content");
-      } catch {
-        return null;
-      }
-    };
-    diag.metas.ogTitle = (await safeAttr('meta[property="og:title"]')) || null;
-    diag.metas.ogImage = (await safeAttr('meta[property="og:image"]')) || null;
-    diag.metas.price = (await safeAttr('meta[property="product:price:amount"]')) || null;
-
-    diag.product.name = diag.metas.ogTitle || (await page.title().catch(() => null)) || null;
-    diag.product.price = diag.metas.price || null;
-    diag.product.image = diag.metas.ogImage || null;
-
+    // iframe 스캔 및 데이터 추출
     console.log("🔍 iframe 스캔 중...");
-    diag.steps.push("scan-frames");
+    response.steps.push("scan-frames");
     const frames = page.frames();
     console.log(`📊 총 ${frames.length}개의 iframe 발견`);
 
-    let productFrame = null;
-    let productData = null;
+    let foundData = false;
 
-    // iframe 내부에서 상품 정보 추출 시도
+    // 각 iframe에서 데이터 추출 시도
     for (let i = 0; i < frames.length; i++) {
-      const f = frames[i];
-      const frameUrl = f.url() || "";
-      const frameName = f.name() || null;
+      const frame = frames[i];
+      const frameUrl = frame.url() || "";
+      const frameName = frame.name() || null;
       
       console.log(`🔍 iframe ${i} 스캔 중:`, frameUrl.slice(0, 100));
       
-      const info = { 
+      const frameInfo = { 
         index: i, 
         url: frameUrl.slice(0, 1000), 
-        name: frameName, 
-        contentSnippet: null, 
-        saved: null,
-        productData: null
+        name: frameName,
+        hasData: false
       };
       
       try {
-        const c = await f.content();
-        info.contentSnippet = c.slice(0, 2000);
+        // iframe 내부에서 데이터 추출
+        const frameData = await extractSmartStoreData(page, frame);
         
-        // iframe 내부에서 상품 정보 추출 시도
-        console.log(`🛍️ iframe ${i}에서 상품 정보 추출 시도 중...`);
-        
-        const frameProductData = await f.evaluate(() => {
-          const result = {
-            name: null,
-            price: null,
-            summary: null,
-            image: null
-          };
+        // 데이터가 있는지 확인
+        if (frameData.product.name || frameData.product.price || frameData.reviews.length > 0 || frameData.qa.length > 0) {
+          console.log(`✅ iframe ${i}에서 유용한 데이터 발견!`);
+          frameInfo.hasData = true;
+          foundData = true;
           
-          // 상품명 추출 (다양한 셀렉터 시도)
-          const nameSelectors = [
-            'h1', 'h2', 'h3',
-            '._1SY6k',
-            '[data-testid="product-title"]',
-            '.product_title',
-            '.productName',
-            '.goods_name',
-            '.product_name',
-            '.product_title_text',
-            '.product_name_text',
-            '.product_info h1',
-            '.product_detail h1',
-            '.product_name_area h1',
-            '.product_title_area h1',
-            '.product_name_area h3',
-            '.product_title_area h3',
-            '.product_title',
-            '.product_name',
-            '.goods_title',
-            '.goods_name'
-          ];
+          // 메인 응답에 데이터 병합
+          if (frameData.product.name) response.product.name = frameData.product.name;
+          if (frameData.product.price) response.product.price = frameData.product.price;
+          if (frameData.product.summary) response.product.summary = frameData.product.summary;
+          if (frameData.product.image) response.product.image = frameData.product.image;
           
-          for (const selector of nameSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent.trim()) {
-              result.name = element.textContent.trim();
-              console.log('상품명 발견:', result.name);
-              break;
-            }
-          }
-          
-          // 가격 추출
-          const priceSelectors = [
-            '.price',
-            '.product_price',
-            '.goods_price',
-            '[data-testid="price"]',
-            '.price_value',
-            '.price_text',
-            '.price_number',
-            '.product_price_text',
-            '.price_area .price',
-            '.product_price_area .price',
-            '.price_area',
-            '.product_price_area',
-            '.price_value',
-            '.price_text',
-            '.price_number',
-            '.product_price_text',
-            '.price_area .price',
-            '.product_price_area .price',
-            '.price_area',
-            '.product_price_area',
-            '.price_value',
-            '.price_text',
-            '.price_number',
-            '.product_price_text',
-            '.price_area .price',
-            '.product_price_area .price',
-            '.price_area',
-            '.product_price_area'
-          ];
-          
-          for (const selector of priceSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent.trim()) {
-              result.price = element.textContent.trim();
-              console.log('가격 발견:', result.price);
-              break;
-            }
-          }
-          
-          // 요약 정보 추출
-          const summarySelectors = [
-            '.product_summary',
-            '.goods_summary',
-            '.product_description',
-            '.goods_description',
-            '.product_info',
-            '.product_detail',
-            '.product_summary_text',
-            '.product_description_text',
-            '.product_summary',
-            '.goods_summary',
-            '.product_description',
-            '.goods_description',
-            '.product_info',
-            '.product_detail',
-            '.product_summary_text',
-            '.product_description_text'
-          ];
-          
-          for (const selector of summarySelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent.trim()) {
-              result.summary = element.textContent.trim();
-              console.log('요약 발견:', result.summary);
-              break;
-            }
-          }
-          
-          // 이미지 추출
-          const imageSelectors = [
-            '.product_image img',
-            '.goods_image img',
-            '.product_thumb img',
-            '.goods_thumb img',
-            '.product_main_image img',
-            '.goods_main_image img',
-            'img[alt*="상품"]',
-            'img[alt*="제품"]'
-          ];
-          
-          for (const selector of imageSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.src) {
-              result.image = element.src;
-              console.log('이미지 발견:', result.image);
-              break;
-            }
-          }
-          
-          return result;
-        });
-        
-        info.productData = frameProductData;
-        
-        // 상품 정보가 있는 iframe 발견
-        if (frameProductData.name || frameProductData.price) {
-          console.log(`✅ iframe ${i}에서 상품 정보 발견:`, frameProductData);
-          productFrame = f;
-          productData = frameProductData;
+          response.reviews.push(...frameData.reviews);
+          response.qa.push(...frameData.qa);
         }
         
-        const fname = path.join(OUTDIR, `frame-${i}-${Date.now()}.html`);
+        // HTML 저장 (디버깅용)
         try {
-          fs.writeFileSync(fname, c.slice(0, 2_000_000));
-          info.saved = fname;
-          diag.savedFiles.push(fname);
-        } catch (e) {}
-      } catch (e) {
-        console.log(`❌ iframe ${i} 읽기 실패:`, e.message);
-        info.contentSnippet = "<<cannot read frame content>>";
-      }
-
-      diag.frames.push(info);
-    }
-
-    // iframe에서 찾은 상품 정보를 메인 결과에 적용
-    if (productData) {
-      console.log("✅ iframe에서 상품 정보 추출 성공");
-      diag.product.name = productData.name || diag.product.name;
-      diag.product.price = productData.price || diag.product.price;
-      diag.product.summary = productData.summary || diag.product.summary;
-      diag.product.image = productData.image || diag.product.image;
-    } else {
-      console.log("⚠️ iframe에서 상품 정보를 찾지 못함, 메인 페이지에서 추출 시도");
-      
-      // 메인 페이지에서 상품 정보 추출 시도
-      try {
-        const mainPageData = await page.evaluate(() => {
-          const result = {
-            name: null,
-            price: null,
-            summary: null,
-            image: null
-          };
-          
-          // 상품명 추출
-          const nameSelectors = [
-            'h1', 'h2', 'h3',
-            '._1SY6k',
-            '[data-testid="product-title"]',
-            '.product_title',
-            '.productName',
-            '.goods_name',
-            '.product_name'
-          ];
-          
-          for (const selector of nameSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent.trim()) {
-              result.name = element.textContent.trim();
-              break;
-            }
-          }
-          
-          // 가격 추출
-          const priceSelectors = [
-            '.price',
-            '.product_price',
-            '.goods_price',
-            '[data-testid="price"]',
-            '.price_value',
-            '.price_text'
-          ];
-          
-          for (const selector of priceSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent.trim()) {
-              result.price = element.textContent.trim();
-              break;
-            }
-          }
-          
-          return result;
-        });
+          const html = await frame.content();
+          const fname = path.join(OUTDIR, `frame-${i}-${Date.now()}.html`);
+          fs.writeFileSync(fname, html.slice(0, 2_000_000));
+          frameInfo.saved = fname;
+          response.debug.savedFiles.push(fname);
+              } catch (e) {
+          console.log(`⚠️ iframe ${i} HTML 저장 실패:`, e.message);
+        }
         
-        diag.product.name = mainPageData.name || diag.product.name;
-        diag.product.price = mainPageData.price || diag.product.price;
-        diag.product.summary = mainPageData.summary || diag.product.summary;
-        diag.product.image = mainPageData.image || diag.product.image;
       } catch (e) {
-        console.log("❌ 메인 페이지에서 상품 정보 추출 실패:", e.message);
+        console.log(`❌ iframe ${i} 처리 실패:`, e.message);
+        frameInfo.error = e.message;
+      }
+
+      response.frames.push(frameInfo);
+    }
+
+    if (!foundData) {
+      console.log("⚠️ iframe에서 데이터를 찾지 못함, 메인 페이지에서 추출 시도");
+      
+      // 메인 페이지에서 기본 정보 추출 시도
+      try {
+        const title = await page.title();
+        if (title) {
+          response.product.name = title;
+          console.log("✅ 페이지 제목으로 상품명 설정:", title);
+        }
+      } catch (e) {
+        console.log("❌ 메인 페이지에서 데이터 추출 실패:", e.message);
       }
     }
 
-    // Save page HTML (cap)
+    // HTML 및 스크린샷 저장
     console.log("💾 HTML 및 스크린샷 저장 중...");
-    diag.steps.push("save-html-screenshot");
+    response.steps.push("save-html-screenshot");
     try {
       const html = await page.content();
       const htmlF = path.join(OUTDIR, `page-${Date.now()}.html`);
-      fs.writeFileSync(htmlF, html.slice(0, 2_000_000)); // 2MB cap
-      diag.savedFiles.push(htmlF);
+      fs.writeFileSync(htmlF, html.slice(0, 2_000_000));
+      response.debug.savedFiles.push(htmlF);
       console.log("✅ HTML 저장 완료");
     } catch (e) { 
       console.warn("❌ HTML 저장 실패:", e?.message || e); 
@@ -490,30 +609,37 @@ app.post("/api/extract", async (req, res) => {
     try {
       const shotF = path.join(OUTDIR, `shot-${Date.now()}.png`);
       await page.screenshot({ path: shotF, fullPage: true }).catch(() => {});
-      diag.savedFiles.push(shotF);
+      response.debug.savedFiles.push(shotF);
       console.log("✅ 스크린샷 저장 완료");
-    } catch (e) { 
+      } catch (e) {
       console.warn("❌ 스크린샷 저장 실패:", e?.message || e); 
     }
 
-    diag.ok = true;
-    diag.steps.push("done");
-    diag.durationMs = Date.now() - t0;
-    console.log("🎉 크롤링 완료:", diag.durationMs + "ms");
-    return res.status(200).json(diag);
+    response.ok = true;
+    response.steps.push("done");
+    response.durationMs = Date.now() - t0;
+    
+    console.log("🎉 크롤링 완료:", response.durationMs + "ms");
+    console.log("📊 최종 결과:");
+    console.log("  - 상품명:", response.product.name);
+    console.log("  - 가격:", response.product.price);
+    console.log("  - 요약:", response.product.summary);
+    console.log("  - 리뷰 수:", response.reviews.length);
+    console.log("  - Q&A 수:", response.qa.length);
+    
+    return res.status(200).json(response);
   } catch (err) {
-    diag.ok = false;
-    diag.error = String(err?.message || err);
-    diag.errorDetails = {
+    response.ok = false;
+    response.error = String(err?.message || err);
+    response.errorDetails = {
       message: err?.message || "Unknown error",
       stack: err?.stack || null,
       name: err?.name || "Error"
     };
-    diag.steps.push("catch");
-    diag.durationMs = Date.now() - t0;
+    response.steps.push("catch");
+    response.durationMs = Date.now() - t0;
     console.error("❌ EXTRACT ERROR:", err);
-    // always respond 200 with diagnostics (no 500) to preserve logs
-    return res.status(200).json(diag);
+    return res.status(200).json(response);
   } finally {
     try { await page?.close(); } catch {}
     try { await browser?.close(); } catch {}
@@ -524,7 +650,7 @@ app.post("/api/extract", async (req, res) => {
 // server listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Playwright 크롤러 서버 실행 중`);
+  console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
   console.log(`📍 포트: ${PORT}`);
   console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
   console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
