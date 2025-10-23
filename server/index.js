@@ -212,7 +212,41 @@ async function extractChannelId(url) {
     }
     
     console.log("⚠️ HTML에서 channelId를 찾을 수 없습니다.");
-    return null;
+    
+    // Fallback: API를 통해 channelId 추출 시도
+    console.log("🔄 API로 channelId 추출 시도 중...");
+    try {
+      const productId = extractProductId(url);
+      if (!productId) {
+        console.log("❌ productId가 없어서 API fallback 불가능");
+        return null;
+      }
+      
+      const apiUrl = `https://smartstore.naver.com/i/v2/products/${productId}`;
+      console.log(`📍 API URL: ${apiUrl}`);
+      
+      const apiResponse = await fetch(apiUrl, {
+        method: 'GET',
+        headers: getDefaultHeaders(url),
+        ...fetchOptions
+      });
+      
+      if (apiResponse.status === 200) {
+        const data = await apiResponse.json();
+        if (data.channel && data.channel.id) {
+          console.log(`✅ API에서 channelId 발견: ${data.channel.id}`);
+          return data.channel.id;
+        }
+      }
+      
+      console.log(`⚠️ API 응답 상태: ${apiResponse.status}`);
+      console.log("❌ API로 channelId 추출 실패");
+      return null;
+      
+    } catch (apiError) {
+      console.log("❌ API로 channelId 추출 실패:", apiError.message);
+      return null;
+    }
     
   } catch (e) {
     console.log("❌ channelId 추출 실패:", e.message);
