@@ -1,23 +1,41 @@
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
-// Node.js 18 File polyfill (undici 호환성)
-if (typeof globalThis.File === 'undefined') {
-  // Blob이 없으면 먼저 polyfill
-  if (typeof globalThis.Blob === 'undefined') {
+// Node.js 18 File/Blob polyfill (undici 호환성)
+if (typeof globalThis.File === 'undefined' || typeof globalThis.Blob === 'undefined') {
+  try {
+    // node:buffer에서 Blob 가져오기
     const { Blob } = require('node:buffer');
-    globalThis.Blob = Blob;
-  }
-  
-  // File polyfill (Blob 상속)
-  globalThis.File = class File extends globalThis.Blob {
-    constructor(chunks, filename, options = {}) {
-      super(chunks, options);
-      this.name = filename || '';
-      this.lastModified = options.lastModified || Date.now();
+    
+    // Blob polyfill
+    if (typeof globalThis.Blob === 'undefined') {
+      globalThis.Blob = Blob;
+      console.log("✅ Blob polyfill 적용 완료");
     }
-  };
-  
-  console.log("✅ File polyfill 적용 완료 (Node.js 18 호환)");
+    
+    // File polyfill (Blob 상속)
+    if (typeof globalThis.File === 'undefined') {
+      globalThis.File = class File extends globalThis.Blob {
+        constructor(chunks, filename, options = {}) {
+          super(chunks, options);
+          this.name = filename || '';
+          this.lastModified = options.lastModified || Date.now();
+        }
+      };
+      console.log("✅ File polyfill 적용 완료");
+    }
+    
+    // 추가 polyfill들
+    if (typeof globalThis.FormData === 'undefined') {
+      const { FormData } = require('formdata-node');
+      globalThis.FormData = FormData;
+      console.log("✅ FormData polyfill 적용 완료");
+    }
+    
+    console.log("✅ 모든 polyfill 적용 완료 (Node.js 18 호환)");
+  } catch (error) {
+    console.log("⚠️ Polyfill 적용 실패:", error.message);
+    console.log("🔄 대체 방법으로 진행...");
+  }
 }
 
 import express from "express";
@@ -266,27 +284,35 @@ app.get("/", (_req, res) => {
 
 // Health check 엔드포인트
 app.get("/api/health", (_req, res) => {
-  const now = Date.now();
-  const timeSinceLastUpdate = now - cookieStatus.lastUpdate;
-  
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    cookie: {
-      hasCookie: !!NAVER_COOKIE,
-      cookieLength: NAVER_COOKIE ? NAVER_COOKIE.length : 0,
-      lastUpdate: cookieStatus.lastUpdate ? new Date(cookieStatus.lastUpdate).toISOString() : null,
-      timeSinceLastUpdate: Math.floor(timeSinceLastUpdate / 1000 / 60), // 분 단위
-      updateCount: cookieStatus.updateCount,
-      isUpdating: cookieStatus.isUpdating,
-      lastError: cookieStatus.lastError
-    },
-    server: {
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      nodeVersion: process.version
-    }
-  });
+  try {
+    const now = Date.now();
+    const timeSinceLastUpdate = now - cookieStatus.lastUpdate;
+    
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      cookie: {
+        hasCookie: !!NAVER_COOKIE,
+        cookieLength: NAVER_COOKIE ? NAVER_COOKIE.length : 0,
+        lastUpdate: cookieStatus.lastUpdate ? new Date(cookieStatus.lastUpdate).toISOString() : null,
+        timeSinceLastUpdate: Math.floor(timeSinceLastUpdate / 1000 / 60), // 분 단위
+        updateCount: cookieStatus.updateCount,
+        isUpdating: cookieStatus.isUpdating,
+        lastError: cookieStatus.lastError
+      },
+      server: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        nodeVersion: process.version
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 /**
@@ -943,28 +969,23 @@ const startServer = () => {
   }
 };
 
-// 서버 시작 시 초기 쿠키 갱신
-async function initializeServer() {
-  console.log("🚀 서버 초기화 중...");
-  
-  // 초기 쿠키 갱신 (백그라운드에서 실행)
-  setTimeout(async () => {
-    try {
-      console.log("🔄 서버 시작 시 초기 쿠키 갱신...");
-      await refreshNaverCookie(true);
-    } catch (error) {
-      console.log("⚠️ 초기 쿠키 갱신 실패:", error.message);
-    }
-  }, 2000); // 2초 후 실행
-  
-  startServer();
-}
-
 // Railway 환경에서 안전한 시작
 if (process.env.NODE_ENV === 'production') {
   // 프로덕션 환경에서는 즉시 시작
-  initializeServer();
+  startServer();
+  
+  // 백그라운드에서 쿠키 갱신 (서버 시작 후)
+  setTimeout(async () => {
+    try {
+      console.log("🔄 서버 시작 후 쿠키 갱신...");
+      await refreshNaverCookie(true);
+    } catch (error) {
+      console.log("⚠️ 쿠키 갱신 실패:", error.message);
+    }
+  }, 10000); // 10초 후 실행
 } else {
   // 개발 환경에서는 약간의 지연 후 시작
-  setTimeout(initializeServer, 100);
+  setTimeout(() => {
+    startServer();
+  }, 100);
 }
