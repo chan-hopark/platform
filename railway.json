@@ -5,8 +5,7 @@
       "phases": {
         "install": {
           "cmds": [
-            "npm install",
-            "npx playwright install --with-deps"
+            "npm install"
           ]
         },
         "build": {

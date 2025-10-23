@@ -111,12 +111,19 @@ npm run dev
 
 Railway 대시보드에서 다음 환경변수들을 설정하세요:
 
+1. **Railway 프로젝트 대시보드 접속**
+2. **Variables 탭 클릭**
+3. **다음 환경변수들 추가:**
+
 ```
 NAVER_COOKIE=실제_쿠키_값
 NAVER_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36
 NAVER_ACCEPT=application/json, text/plain, */*
+NAVER_ACCEPT_LANGUAGE=ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7
 NODE_ENV=production
 ```
+
+4. **Save 버튼 클릭** (자동 재배포 시작)
 
 ### 3. 자동 배포
 

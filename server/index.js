@@ -38,10 +38,12 @@ try {
 const NAVER_COOKIE = process.env.NAVER_COOKIE;
 const NAVER_USER_AGENT = process.env.NAVER_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 const NAVER_ACCEPT = process.env.NAVER_ACCEPT || "application/json, text/plain, */*";
+const NAVER_ACCEPT_LANGUAGE = process.env.NAVER_ACCEPT_LANGUAGE || "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7";
 
 if (!NAVER_COOKIE) {
   console.log("⚠️ NAVER_COOKIE 환경변수가 설정되지 않았습니다.");
-  console.log("   .env 파일에 NAVER_COOKIE를 설정하거나 Railway 환경변수에 추가하세요.");
+  console.log("   Railway Variables 탭에서 NAVER_COOKIE를 설정하세요.");
+  console.log("   또는 .env 파일에 NAVER_COOKIE를 설정하세요.");
 }
 
 // axios 인스턴스 생성 (성능 최적화)
@@ -57,7 +59,7 @@ const getDefaultHeaders = (referer) => ({
   'user-agent': NAVER_USER_AGENT,
   'accept': NAVER_ACCEPT,
   'referer': referer,
-  'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'accept-language': NAVER_ACCEPT_LANGUAGE,
   'accept-encoding': 'gzip, deflate, br, zstd'
 });
 
