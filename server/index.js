@@ -4,7 +4,7 @@
 console.log("🚀 쿠팡 크롤러 서버 시작...");
 
 // 안전한 모듈 import
-let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch;
+let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch, chromium;
 
 console.log("📦 모듈 로딩 시작...");
 
@@ -96,6 +96,16 @@ try {
 } catch (error) {
   console.error("❌ node-fetch 로딩 실패:", error.message);
   process.exit(1);
+}
+
+try {
+  const playwrightModule = await import("playwright");
+  chromium = playwrightModule.chromium;
+  console.log("✅ playwright 로딩 완료");
+} catch (error) {
+  console.error("❌ playwright 로딩 실패:", error.message);
+  console.log("⚠️ playwright 없이 서버 시작 (크롤링 비활성화)");
+  chromium = null;
 }
 
 console.log("✅ 모든 모듈 로딩 완료");
@@ -244,10 +254,184 @@ const getCoupangProductDetail = async (productId) => {
   }
 };
 
-// 쿠팡 상품 정보 추출 (개선된 방법)
+// Playwright를 사용한 쿠팡 상품 정보 추출
+const extractCoupangProductWithPlaywright = async (url) => {
+  if (!chromium) {
+    throw new Error('Playwright가 설치되지 않았습니다.');
+  }
+
+  let browser = null;
+  try {
+    console.log("🎭 Playwright 브라우저 시작...");
+
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
+    });
+
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1920, height: 1080 }
+    });
+    
+    const page = await context.newPage();
+    
+    console.log("🌐 쿠팡 페이지 로딩...");
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    
+    // 페이지 로딩 대기
+    await page.waitForTimeout(3000);
+    
+    console.log("🔍 상품 정보 추출 중...");
+    
+    // 상품명 추출
+    const productName = await page.evaluate(() => {
+      const selectors = [
+        'h1.prod-buy-header__title',
+        '.prod-buy-header__title',
+        'h1',
+        '.product-title',
+        '[data-testid="product-title"]'
+      ];
+      
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          return element.textContent.trim();
+        }
+      }
+      return null;
+    });
+    
+    // 가격 추출
+    const price = await page.evaluate(() => {
+      const selectors = [
+        '.total-price strong',
+        '.prod-price .total-price',
+        '.total-price',
+        '.price',
+        '.sale-price',
+        '.prod-price',
+        '[data-testid="price"]'
+      ];
+      
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          const priceText = element.textContent.trim();
+          return priceText.replace(/[^\d]/g, '');
+        }
+      }
+      return '0';
+    });
+    
+    // 이미지 추출
+    const images = await page.evaluate(() => {
+      const imageElements = document.querySelectorAll('.prod-image img, .image img, .product-image img, .prod-img img');
+      const imageUrls = [];
+      
+      imageElements.forEach(img => {
+        const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy');
+        if (src && !src.includes('placeholder') && !src.includes('blank')) {
+          const fullSrc = src.startsWith('http') ? src : `https:${src}`;
+          if (!imageUrls.includes(fullSrc)) {
+            imageUrls.push(fullSrc);
+          }
+        }
+      });
+      
+      return imageUrls.slice(0, 10);
+    });
+    
+    // 브랜드 추출
+    const brand = await page.evaluate(() => {
+      const selectors = [
+        '.prod-brand-name',
+        '.brand-name',
+        '.product-brand',
+        '[data-testid="brand"]'
+      ];
+      
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.textContent.trim()) {
+          return element.textContent.trim();
+        }
+      }
+      return '';
+    });
+    
+    // 카테고리 추출
+    const category = await page.evaluate(() => {
+      const breadcrumbElements = document.querySelectorAll('.breadcrumb a, .category-path a');
+      if (breadcrumbElements.length > 0) {
+        return Array.from(breadcrumbElements).map(el => el.textContent.trim()).join(' > ');
+      }
+      return '';
+    });
+    
+    // 상세 설명 추출
+    const description = await page.evaluate(() => {
+      const selectors = [
+        '.prod-description',
+        '.product-description',
+        '.detail-content',
+        '.product-detail'
+      ];
+      
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.innerHTML.trim()) {
+          return element.innerHTML.trim();
+        }
+      }
+      return '';
+    });
+    
+    console.log("✅ Playwright 상품 정보 추출 완료");
+    console.log(`  - 상품명: ${productName}`);
+    console.log(`  - 가격: ${price}`);
+    console.log(`  - 이미지: ${images.length}개`);
+    
+    return {
+      name: productName || '상품명을 찾을 수 없습니다',
+      price: price || '0',
+      images: images,
+      description: description,
+      brand: brand,
+      category: category,
+      url: url,
+      source: 'playwright'
+    };
+    
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+};
+
+// 쿠팡 상품 정보 추출 (Playwright 우선)
 const extractCoupangProduct = async (url) => {
   try {
     console.log("🔄 쿠팡 상품 정보 추출 시작...");
+    
+    // Playwright가 있으면 우선 사용
+    if (chromium) {
+      console.log("🎭 Playwright 크롤링 사용");
+      return await extractCoupangProductWithPlaywright(url);
+    }
+    
+    // Playwright가 없으면 기존 HTML 파싱 사용
+    console.log("🌐 HTML 파싱 사용");
     
     const response = await axiosInstance.get(url, {
       headers: {
@@ -258,77 +442,25 @@ const extractCoupangProduct = async (url) => {
     
     const $ = cheerio.load(response.data);
     
-    // 1. 페이지 내 JSON 데이터 추출 시도
-    let jsonData = null;
-    try {
-      // window.__INITIAL_STATE__ 또는 window.__APOLLO_STATE__ 찾기
-      const scriptTags = $('script').toArray();
-      for (const script of scriptTags) {
-        const content = $(script).html();
-        if (content && content.includes('__INITIAL_STATE__')) {
-          const match = content.match(/window\.__INITIAL_STATE__\s*=\s*({.*?});/);
-          if (match) {
-            jsonData = JSON.parse(match[1]);
-            console.log("📦 JSON 데이터 발견:", Object.keys(jsonData));
-            break;
-          }
-        }
-      }
-    } catch (jsonError) {
-      console.log("⚠️ JSON 데이터 파싱 실패:", jsonError.message);
-    }
-    
-    // 2. JSON 데이터에서 상품 정보 추출
-    if (jsonData) {
-      try {
-        // JSON 구조에 따라 상품 정보 추출
-        const productInfo = jsonData.product || jsonData.productInfo || jsonData;
-        
-        if (productInfo) {
-          return {
-            name: productInfo.productName || productInfo.name || productInfo.title || '상품명 없음',
-            price: productInfo.salePrice || productInfo.price || productInfo.originalPrice || '0',
-            images: productInfo.images || productInfo.imageUrls || [],
-            description: productInfo.description || productInfo.detailContent || '',
-            brand: productInfo.brand || productInfo.brandName || '',
-            category: productInfo.category || productInfo.categoryName || '',
-            url: url,
-            source: 'json'
-          };
-        }
-      } catch (jsonParseError) {
-        console.log("⚠️ JSON 상품 정보 추출 실패:", jsonParseError.message);
-      }
-    }
-    
-    // 3. JSON 데이터가 없거나 실패한 경우 HTML 파싱
-    console.log("🌐 HTML 파싱 사용");
-    
-    // 상품명 추출 (더 많은 셀렉터)
+    // 상품명 추출
     const productName = $('h1.prod-buy-header__title').text().trim() || 
                        $('.prod-buy-header__title').text().trim() ||
-                       $('h1.prod-buy-header__title').text().trim() ||
-                       $('.product-title').text().trim() ||
                        $('h1').first().text().trim() ||
-                       $('meta[property="og:title"]').attr('content') ||
                        '상품명을 찾을 수 없습니다';
     
-    // 가격 추출 (더 많은 셀렉터)
+    // 가격 추출
     const priceText = $('.total-price strong').text().trim() ||
                      $('.prod-price .total-price').text().trim() ||
                      $('.total-price').text().trim() ||
-                     $('.price').first().text().trim() ||
-                     $('.sale-price').text().trim() ||
-                     $('.prod-price').text().trim() ||
                      '0';
     
     const price = priceText.replace(/[^\d]/g, '') || '0';
     
-    // 이미지 추출 (더 많은 셀렉터)
+    // 이미지 추출
     const images = [];
-    $('.prod-image img, .image img, .product-image img, .prod-img img').each((i, el) => {
-      const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy');
-      if (src && !src.includes('placeholder') && !src.includes('blank')) {
+    $('.prod-image img, .image img, .product-image img').each((i, el) => {
+      const src = $(el).attr('src') || $(el).attr('data-src');
+      if (src && !src.includes('placeholder')) {
         const fullSrc = src.startsWith('http') ? src : `https:${src}`;
         if (!images.includes(fullSrc)) {
           images.push(fullSrc);
@@ -339,22 +471,18 @@ const extractCoupangProduct = async (url) => {
     // 상세 설명 추출
     const description = $('.prod-description').html() || 
                       $('.product-description').html() ||
-                      $('.detail-content').html() ||
-                      $('.product-detail').html() ||
                       '';
     
     // 브랜드 추출
     const brand = $('.prod-brand-name').text().trim() ||
                  $('.brand-name').text().trim() ||
-                 $('.product-brand').text().trim() ||
                  '';
     
     // 카테고리 추출
     const category = $('.breadcrumb a').map((i, el) => $(el).text().trim()).get().join(' > ') ||
-                   $('.category-path a').map((i, el) => $(el).text().trim()).get().join(' > ') ||
                    '';
     
-    console.log("✅ 쿠팡 상품 정보 추출 완료");
+    console.log("✅ HTML 파싱 상품 정보 추출 완료");
     console.log(`  - 상품명: ${productName}`);
     console.log(`  - 가격: ${price}`);
     console.log(`  - 이미지: ${images.length}개`);

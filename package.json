@@ -13,7 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:extract": "node scripts/test-extract.js",
-    "test:health": "curl http://localhost:3000/api/health"
+    "test:health": "curl http://localhost:3000/api/health",
+    "postinstall": "npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -22,6 +23,7 @@
     "express": "^4.19.2",
     "formdata-node": "^4.3.4",
     "node-fetch": "^3.3.2",
+    "playwright": "^1.56.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0"
