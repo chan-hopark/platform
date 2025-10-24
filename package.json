@@ -12,11 +12,10 @@
     "dev": "HEADLESS=false node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
-    "postinstall": "npx playwright install chromium --with-deps",
     "test:extract": "node scripts/test-extract.js",
     "test:health": "curl http://localhost:3000/api/health",
-    "docker:build": "docker build -t naver-crawler .",
-    "docker:run": "docker run -p 3000:3000 naver-crawler"
+    "docker:build": "docker build -t coupang-crawler .",
+    "docker:run": "docker run -p 3000:3000 coupang-crawler"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -26,7 +25,6 @@
     "formdata-node": "^4.3.4",
     "http-proxy-middleware": "^2.0.6",
     "node-fetch": "^3.3.2",
-    "playwright": "^1.56.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0"

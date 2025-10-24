@@ -37,37 +37,42 @@ const HomePage = () => {
       if (data.ok) {
         setResult(data);
       } else {
-        // 백엔드에서 오는 상세한 에러 정보 표시
-        let errorMessage = data.error || '데이터 추출에 실패했습니다.';
-        
-        // debug 정보가 있으면 추가
-        if (data.debug) {
-          if (data.debug.errors && data.debug.errors.length > 0) {
-            errorMessage += '\n\n상세 오류:';
-            data.debug.errors.forEach(err => {
-              errorMessage += `\n• ${err}`;
-            });
+        // 네이버 스마트스토어인 경우 특별한 메시지 표시
+        if (data.vendor === 'naver') {
+          setError('🚧 네이버 스마트스토어 서비스는 준비중입니다.\n\n현재 쿠팡 상품만 지원합니다.\n쿠팡 상품 URL을 입력해주세요.');
+        } else {
+          // 백엔드에서 오는 상세한 에러 정보 표시
+          let errorMessage = data.error || '데이터 추출에 실패했습니다.';
+          
+          // debug 정보가 있으면 추가
+          if (data.debug) {
+            if (data.debug.errors && data.debug.errors.length > 0) {
+              errorMessage += '\n\n상세 오류:';
+              data.debug.errors.forEach(err => {
+                errorMessage += `\n• ${err}`;
+              });
+            }
+            
+            if (data.debug.steps && data.debug.steps.length > 0) {
+              errorMessage += '\n\n처리 단계:';
+              data.debug.steps.forEach(step => {
+                const status = step.success ? '✅' : '❌';
+                errorMessage += `\n${status} ${step.step}`;
+                if (step.value) errorMessage += ` (${step.value})`;
+              });
+            }
+            
+            if (data.debug.endpoints && data.debug.endpoints.length > 0) {
+              errorMessage += '\n\nAPI 호출:';
+              data.debug.endpoints.forEach(endpoint => {
+                const status = endpoint.status === 200 ? '✅' : '❌';
+                errorMessage += `\n${status} ${endpoint.method} ${endpoint.url} (${endpoint.status})`;
+              });
+            }
           }
           
-          if (data.debug.steps && data.debug.steps.length > 0) {
-            errorMessage += '\n\n처리 단계:';
-            data.debug.steps.forEach(step => {
-              const status = step.success ? '✅' : '❌';
-              errorMessage += `\n${status} ${step.step}`;
-              if (step.value) errorMessage += ` (${step.value})`;
-            });
-          }
-          
-          if (data.debug.endpoints && data.debug.endpoints.length > 0) {
-            errorMessage += '\n\nAPI 호출:';
-            data.debug.endpoints.forEach(endpoint => {
-              const status = endpoint.status === 200 ? '✅' : '❌';
-              errorMessage += `\n${status} ${endpoint.method} ${endpoint.url} (${endpoint.status})`;
-            });
-          }
+          setError(errorMessage);
         }
-        
-        setError(errorMessage);
       }
     } catch (error) {
       setError('서버와의 통신 중 오류가 발생했습니다: ' + error.message);
@@ -78,22 +83,22 @@ const HomePage = () => {
 
   return (
     <div className="py-6">
-      {/* 네이버 스마트스토어 크롤러 섹션 */}
+      {/* 쿠팡 상품 크롤러 섹션 */}
       <div className="mb-8">
         <SectionBox className="p-8">
-          <h2 className="text-2xl font-bold mb-6 text-center">🛍️ 네이버 스마트스토어 크롤러</h2>
+          <h2 className="text-2xl font-bold mb-6 text-center">🛍️ 쿠팡 상품 크롤러</h2>
           
           <div className="max-w-2xl mx-auto">
             <div className="mb-4">
               <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
-                네이버 스마트스토어 상품 URL:
+                쿠팡 상품 URL:
               </label>
               <input
                 type="url"
                 id="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://smartstore.naver.com/..."
+                placeholder="https://www.coupang.com/vp/products/..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -128,16 +133,16 @@ const HomePage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <p className="text-green-700">
-                      <strong>상품명:</strong> {result.product?.productName || '추출 실패'}
+                      <strong>상품명:</strong> {result.product?.name || '추출 실패'}
                     </p>
                     <p className="text-green-700">
-                      <strong>가격:</strong> {result.product?.salePrice ? `${result.product.salePrice.toLocaleString()}원` : '추출 실패'}
+                      <strong>가격:</strong> {result.product?.price ? `${result.product.price.toLocaleString()}원` : '추출 실패'}
                     </p>
                     <p className="text-green-700">
-                      <strong>브랜드:</strong> {result.product?.brandName || '정보 없음'}
+                      <strong>브랜드:</strong> {result.product?.brand || '정보 없음'}
                     </p>
                     <p className="text-green-700">
-                      <strong>카테고리:</strong> {result.product?.categoryName || '정보 없음'}
+                      <strong>카테고리:</strong> {result.product?.category || '정보 없음'}
                     </p>
                   </div>
                   <div>
@@ -158,11 +163,11 @@ const HomePage = () => {
               {result.product && (
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <h4 className="font-semibold text-blue-800 mb-2">📦 상품 상세 정보</h4>
-                  {result.product.detailContent && (
+                  {result.product.description && (
                     <div className="text-blue-700">
                       <strong>상세 설명:</strong>
                       <div className="mt-2 p-3 bg-white rounded border max-h-40 overflow-y-auto">
-                        <div dangerouslySetInnerHTML={{ __html: result.product.detailContent }} />
+                        <div dangerouslySetInnerHTML={{ __html: result.product.description }} />
                       </div>
                     </div>
                   )}
@@ -177,8 +182,8 @@ const HomePage = () => {
                     {result.reviews.slice(0, 10).map((review, index) => (
                       <div key={index} className="p-3 bg-white rounded border">
                         <div className="flex justify-between items-start mb-2">
-                          <span className="font-medium">{review.writer?.name || '익명'}</span>
-                          <span className="text-sm text-gray-500">{review.createdAt}</span>
+                          <span className="font-medium">{review.author || '익명'}</span>
+                          <span className="text-sm text-gray-500">{review.date}</span>
                         </div>
                         <p className="text-sm text-gray-700">{review.content}</p>
                         {review.rating && (
@@ -204,8 +209,8 @@ const HomePage = () => {
                           )}
                         </div>
                         <div className="flex justify-between items-center text-xs text-gray-500">
-                          <span>{qna.writer?.name || '익명'}</span>
-                          <span>{qna.createdAt}</span>
+                          <span>{qna.author || '익명'}</span>
+                          <span>{qna.date}</span>
                         </div>
                       </div>
                     ))}
@@ -218,9 +223,8 @@ const HomePage = () => {
                 <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                   <h4 className="font-semibold text-gray-800 mb-2">🔧 디버그 정보</h4>
                   <div className="text-sm text-gray-700 space-y-1">
-                    <p><strong>벤더:</strong> {result.vendor || 'naver'}</p>
+                    <p><strong>벤더:</strong> {result.vendor || 'coupang'}</p>
                     <p><strong>Product ID:</strong> {result.productId}</p>
-                    <p><strong>Channel ID:</strong> {result.channelId}</p>
                     <p><strong>캐시 사용:</strong> {result.debug.cacheHit ? '✅' : '❌'}</p>
                     <p><strong>처리 시간:</strong> {result.durationMs}ms</p>
                     
