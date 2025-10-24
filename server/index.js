@@ -66,21 +66,43 @@ let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch, 
 try {
   console.log("📦 모듈 로딩 시작...");
   
-  express = (await import("express")).default;
-  cors = (await import("cors")).default;
-  fs = (await import("fs")).default;
-  path = (await import("path")).default;
-  axios = (await import("axios")).default;
-  cheerio = (await import("cheerio"));
-  fileURLToPath = (await import("url")).fileURLToPath;
-  http = (await import("http")).default;
-  https = (await import("https")).default;
-  fetch = (await import("node-fetch")).default;
-  chromium = (await import("playwright")).chromium;
+  const expressModule = await import("express");
+  express = expressModule.default;
+  
+  const corsModule = await import("cors");
+  cors = corsModule.default;
+  
+  const fsModule = await import("fs");
+  fs = fsModule.default;
+  
+  const pathModule = await import("path");
+  path = pathModule.default;
+  
+  const axiosModule = await import("axios");
+  axios = axiosModule.default;
+  
+  const cheerioModule = await import("cheerio");
+  cheerio = cheerioModule;
+  
+  const urlModule = await import("url");
+  fileURLToPath = urlModule.fileURLToPath;
+  
+  const httpModule = await import("http");
+  http = httpModule.default;
+  
+  const httpsModule = await import("https");
+  https = httpsModule.default;
+  
+  const fetchModule = await import("node-fetch");
+  fetch = fetchModule.default;
+  
+  const playwrightModule = await import("playwright");
+  chromium = playwrightModule.chromium;
   
   console.log("✅ 모든 모듈 로딩 완료");
 } catch (error) {
   console.error("❌ 모듈 로딩 실패:", error.message);
+  console.error("❌ 에러 스택:", error.stack);
   process.exit(1);
 }
 
@@ -1390,61 +1412,44 @@ const PORT = process.env.PORT || 3000;
 
 // Railway 환경에서 안전한 서버 시작
 const startServer = () => {
-  try {
-    console.log("🔄 서버 시작 중...");
-    console.log(`📍 포트: ${PORT}`);
-    
-    // 포트 바인딩 전 확인
-    if (!PORT || isNaN(PORT)) {
-      console.error("❌ 유효하지 않은 포트:", PORT);
-      process.exit(1);
-    }
-    
-    console.log("🔗 포트 바인딩 시도 중...");
-    
-    const server = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 서버 실행 중 - 포트: ${PORT}`);
-      console.log(`✅ Railway 헬스체크 준비 완료!`);
-    });
-    
-    // 서버 에러 핸들링
-    server.on('error', (error) => {
-      console.error("❌ 서버 에러:", error);
-      process.exit(1);
-    });
-    
-    // 연결 확인
-    server.on('listening', () => {
-      console.log(`✅ 서버가 포트 ${PORT}에서 리스닝 중`);
-    });
-    
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('🔄 SIGTERM 신호 수신, 서버 종료 중...');
-      server.close(() => {
-        console.log('✅ 서버 종료 완료');
-        process.exit(0);
-      });
-    });
-    
-  } catch (error) {
-    console.error("❌ 서버 시작 실패:", error);
+  console.log("🔄 서버 시작 중...");
+  console.log(`📍 포트: ${PORT}`);
+  
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 서버 실행 중 - 포트: ${PORT}`);
+    console.log(`✅ Railway 헬스체크 준비 완료!`);
+  });
+  
+  server.on('error', (error) => {
+    console.error("❌ 서버 에러:", error);
     process.exit(1);
-  }
+  });
+  
+  server.on('listening', () => {
+    console.log(`✅ 서버가 포트 ${PORT}에서 리스닝 중`);
+  });
+  
+  return server;
 };
 
 // Railway 환경에서 안전한 시작
 console.log("🚀 서버 시작 프로세스 시작...");
 
-// 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
-startServer();
-
-// 백그라운드에서 쿠키 갱신 (서버 시작 후 - 더 늦게)
-setTimeout(async () => {
-  try {
-    console.log("🔄 서버 시작 후 쿠키 갱신...");
-    await refreshNaverCookie(true);
-  } catch (error) {
-    console.log("⚠️ 쿠키 갱신 실패:", error.message);
-  }
-}, 15000); // 15초 후 실행 (헬스체크 통과 후)
+try {
+  // 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
+  const server = startServer();
+  
+  // 백그라운드에서 쿠키 갱신 (서버 시작 후 - 더 늦게)
+  setTimeout(async () => {
+    try {
+      console.log("🔄 서버 시작 후 쿠키 갱신...");
+      await refreshNaverCookie(true);
+    } catch (error) {
+      console.log("⚠️ 쿠키 갱신 실패:", error.message);
+    }
+  }, 15000); // 15초 후 실행 (헬스체크 통과 후)
+  
+} catch (error) {
+  console.error("❌ 서버 시작 실패:", error);
+  process.exit(1);
+}
