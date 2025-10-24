@@ -127,6 +127,7 @@ const HomePage = () => {
                     </p>
                     <p className="text-green-700">
                       <strong>데이터 소스:</strong> {
+                        result.product?.source === 'direct' ? '🌐 직접 크롤링' :
                         result.product?.source === 'playwright' ? '🎭 Playwright 크롤링' :
                         result.product?.source === 'json' ? '📦 JSON 데이터' :
                         result.product?.source === 'api' ? '📡 쿠팡 API' : 
