@@ -5,13 +5,16 @@
   "deploy": {
     "startCommand": "npm start",
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 5
+    "restartPolicyMaxRetries": 5,
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 30
   },
   "environments": {
     "production": {
       "variables": {
         "NODE_ENV": "production",
-        "NODE_VERSION": "20.0.0"
+        "NODE_VERSION": "20.0.0",
+        "PORT": "3000"
       }
     }
   }

@@ -1,21 +1,28 @@
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
-// undici 완전 차단 및 polyfill 강화
-console.log("🔧 Node.js 버전:", process.version);
-console.log("🔧 플랫폼:", process.platform);
+// 서버 시작 전 크래시 방지
+try {
+  console.log("🔧 Node.js 버전:", process.version);
+  console.log("🔧 플랫폼:", process.platform);
 
-// undici 모듈 완전 차단
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const Module = require('module');
-const originalRequire = Module.prototype.require;
-Module.prototype.require = function(id) {
-  if (id === 'undici' || id.includes('undici')) {
-    console.log("🚫 undici 모듈 차단:", id);
-    throw new Error(`undici module blocked: ${id}`);
-  }
-  return originalRequire.apply(this, arguments);
-};
+  // undici 모듈 완전 차단
+  import { createRequire } from 'module';
+  const require = createRequire(import.meta.url);
+  const Module = require('module');
+  const originalRequire = Module.prototype.require;
+  Module.prototype.require = function(id) {
+    if (id === 'undici' || id.includes('undici')) {
+      console.log("🚫 undici 모듈 차단:", id);
+      throw new Error(`undici module blocked: ${id}`);
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  
+  console.log("✅ 모듈 차단 설정 완료");
+} catch (error) {
+  console.log("⚠️ 모듈 차단 설정 실패:", error.message);
+  console.log("🔄 계속 진행...");
+}
 
 // globalThis polyfill 강화
 if (typeof globalThis.File === 'undefined') {
@@ -53,17 +60,29 @@ console.log("  - File:", typeof globalThis.File !== 'undefined' ? "✅" : "❌")
 console.log("  - Blob:", typeof globalThis.Blob !== 'undefined' ? "✅" : "❌");
 console.log("  - FormData:", typeof globalThis.FormData !== 'undefined' ? "✅" : "❌");
 
-import express from "express";
-import cors from "cors";
-import fs from "fs";
-import path from "path";
-import axios from "axios";
-import * as cheerio from "cheerio";
-import { fileURLToPath } from "url";
-import http from "http";
-import https from "https";
-import fetch from "node-fetch";
-import { chromium } from "playwright";
+// 안전한 모듈 import
+let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch, chromium;
+
+try {
+  console.log("📦 모듈 로딩 시작...");
+  
+  express = (await import("express")).default;
+  cors = (await import("cors")).default;
+  fs = (await import("fs")).default;
+  path = (await import("path")).default;
+  axios = (await import("axios")).default;
+  cheerio = (await import("cheerio"));
+  fileURLToPath = (await import("url")).fileURLToPath;
+  http = (await import("http")).default;
+  https = (await import("https")).default;
+  fetch = (await import("node-fetch")).default;
+  chromium = (await import("playwright")).chromium;
+  
+  console.log("✅ 모든 모듈 로딩 완료");
+} catch (error) {
+  console.error("❌ 모듈 로딩 실패:", error.message);
+  process.exit(1);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1406,13 +1425,22 @@ const startServer = () => {
     console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔧 Node.js 버전: ${process.version}`);
     
+    // 포트 바인딩 전 확인
+    if (!PORT || isNaN(PORT)) {
+      console.error("❌ 유효하지 않은 포트:", PORT);
+      process.exit(1);
+    }
+    
+    console.log("🔗 포트 바인딩 시도 중...");
+    
     const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
+      console.log(`📍 바인딩된 포트: ${PORT}`);
       console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
       console.log(`📦 빌드 경로: ${buildPath}`);
       console.log(`🍪 쿠키 설정: ${NAVER_COOKIE ? '✅ 설정됨' : '❌ 미설정'}`);
       console.log(`🌐 File polyfill: ${typeof globalThis.File !== 'undefined' ? '✅ 적용됨' : '❌ 미적용'}`);
-      console.log(`✅ 서버 준비 완료!`);
+      console.log(`✅ 서버 준비 완료! Railway에서 접근 가능합니다.`);
     });
     
     // 서버 에러 핸들링
@@ -1420,13 +1448,28 @@ const startServer = () => {
       console.error("❌ 서버 에러:", error);
       if (error.code === 'EADDRINUSE') {
         console.error(`❌ 포트 ${PORT}가 이미 사용 중입니다.`);
+      } else if (error.code === 'EACCES') {
+        console.error(`❌ 포트 ${PORT}에 대한 권한이 없습니다.`);
       }
       process.exit(1);
+    });
+    
+    // 연결 확인
+    server.on('listening', () => {
+      console.log(`✅ 서버가 포트 ${PORT}에서 정상적으로 리스닝 중입니다.`);
     });
     
     // Graceful shutdown
     process.on('SIGTERM', () => {
       console.log('🔄 SIGTERM 신호 수신, 서버 종료 중...');
+      server.close(() => {
+        console.log('✅ 서버 종료 완료');
+        process.exit(0);
+      });
+    });
+    
+    process.on('SIGINT', () => {
+      console.log('🔄 SIGINT 신호 수신, 서버 종료 중...');
       server.close(() => {
         console.log('✅ 서버 종료 완료');
         process.exit(0);
@@ -1441,22 +1484,17 @@ const startServer = () => {
 };
 
 // Railway 환경에서 안전한 시작
-if (process.env.NODE_ENV === 'production') {
-  // 프로덕션 환경에서는 즉시 시작
-  startServer();
-  
-  // 백그라운드에서 쿠키 갱신 (서버 시작 후)
-  setTimeout(async () => {
-    try {
-      console.log("🔄 서버 시작 후 쿠키 갱신...");
-      await refreshNaverCookie(true);
-    } catch (error) {
-      console.log("⚠️ 쿠키 갱신 실패:", error.message);
-    }
-  }, 10000); // 10초 후 실행
-} else {
-  // 개발 환경에서는 약간의 지연 후 시작
-  setTimeout(() => {
-    startServer();
-  }, 100);
-}
+console.log("🚀 서버 시작 프로세스 시작...");
+
+// 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
+startServer();
+
+// 백그라운드에서 쿠키 갱신 (서버 시작 후)
+setTimeout(async () => {
+  try {
+    console.log("🔄 서버 시작 후 쿠키 갱신...");
+    await refreshNaverCookie(true);
+  } catch (error) {
+    console.log("⚠️ 쿠키 갱신 실패:", error.message);
+  }
+}, 5000); // 5초 후 실행
