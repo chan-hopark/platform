@@ -41,22 +41,30 @@ const HomePage = () => {
         let errorMessage = data.error || '데이터 추출에 실패했습니다.';
         
         // debug 정보가 있으면 추가
-        if (data.debug && data.debug.errors && data.debug.errors.length > 0) {
-          errorMessage += '\n\n상세 오류:';
-          data.debug.errors.forEach(err => {
-            errorMessage += `\n• ${err}`;
-          });
-        }
-        
-        // endpoints 정보가 있으면 추가
-        if (data.debug && data.debug.endpoints && data.debug.endpoints.length > 0) {
-          errorMessage += '\n\nAPI 호출 상태:';
-          data.debug.endpoints.forEach(endpoint => {
-            errorMessage += `\n• ${endpoint.name}: ${endpoint.status}`;
-            if (endpoint.error) {
-              errorMessage += ` (${endpoint.error})`;
-            }
-          });
+        if (data.debug) {
+          if (data.debug.errors && data.debug.errors.length > 0) {
+            errorMessage += '\n\n상세 오류:';
+            data.debug.errors.forEach(err => {
+              errorMessage += `\n• ${err}`;
+            });
+          }
+          
+          if (data.debug.steps && data.debug.steps.length > 0) {
+            errorMessage += '\n\n처리 단계:';
+            data.debug.steps.forEach(step => {
+              const status = step.success ? '✅' : '❌';
+              errorMessage += `\n${status} ${step.step}`;
+              if (step.value) errorMessage += ` (${step.value})`;
+            });
+          }
+          
+          if (data.debug.endpoints && data.debug.endpoints.length > 0) {
+            errorMessage += '\n\nAPI 호출:';
+            data.debug.endpoints.forEach(endpoint => {
+              const status = endpoint.status === 200 ? '✅' : '❌';
+              errorMessage += `\n${status} ${endpoint.method} ${endpoint.url} (${endpoint.status})`;
+            });
+          }
         }
         
         setError(errorMessage);
@@ -210,9 +218,26 @@ const HomePage = () => {
                 <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                   <h4 className="font-semibold text-gray-800 mb-2">🔧 디버그 정보</h4>
                   <div className="text-sm text-gray-700 space-y-1">
+                    <p><strong>벤더:</strong> {result.vendor || 'naver'}</p>
                     <p><strong>Product ID:</strong> {result.productId}</p>
                     <p><strong>Channel ID:</strong> {result.channelId}</p>
                     <p><strong>캐시 사용:</strong> {result.debug.cacheHit ? '✅' : '❌'}</p>
+                    <p><strong>처리 시간:</strong> {result.durationMs}ms</p>
+                    
+                    {result.debug.steps && result.debug.steps.length > 0 && (
+                      <div className="mt-2">
+                        <strong>처리 단계:</strong>
+                        <ul className="ml-4 space-y-1">
+                          {result.debug.steps.map((step, index) => (
+                            <li key={index} className="flex items-center">
+                              <span className={`w-2 h-2 rounded-full mr-2 ${step.success ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              {step.step}
+                              {step.value && <span className="text-blue-600 ml-2">({step.value})</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     
                     {result.debug.endpoints && result.debug.endpoints.length > 0 && (
                       <div className="mt-2">
@@ -220,9 +245,8 @@ const HomePage = () => {
                         <ul className="ml-4 space-y-1">
                           {result.debug.endpoints.map((endpoint, index) => (
                             <li key={index} className="flex items-center">
-                              <span className={`w-2 h-2 rounded-full mr-2 ${endpoint.status === 'success' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                              {endpoint.name}: {endpoint.status}
-                              {endpoint.error && <span className="text-red-600 ml-2">({endpoint.error})</span>}
+                              <span className={`w-2 h-2 rounded-full mr-2 ${endpoint.status === 200 ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              {endpoint.method} {endpoint.url} ({endpoint.status})
                             </li>
                           ))}
                         </ul>

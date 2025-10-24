@@ -1,63 +1,57 @@
 // index.js (네이버 스마트스토어 API 크롤러 - node-fetch 기반)
 
-// undici 체크 및 차단
-try {
-  const undiciPath = require.resolve('undici');
-  console.log("❌ undici가 감지되었습니다:", undiciPath);
-  console.log("🔄 undici 제거를 시도합니다...");
-  
-  // undici 모듈 차단
-  const Module = require('module');
-  const originalRequire = Module.prototype.require;
-  Module.prototype.require = function(id) {
-    if (id === 'undici' || id.includes('undici')) {
-      throw new Error('undici is blocked');
-    }
-    return originalRequire.apply(this, arguments);
-  };
-  
-  console.log("✅ undici 차단 완료");
-} catch (error) {
-  console.log("✅ undici가 설치되지 않음");
-}
+// undici 완전 차단 및 polyfill 강화
+console.log("🔧 Node.js 버전:", process.version);
+console.log("🔧 플랫폼:", process.platform);
 
-// Node.js 18 File/Blob polyfill (undici 호환성)
-if (typeof globalThis.File === 'undefined' || typeof globalThis.Blob === 'undefined') {
+// undici 모듈 완전 차단
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Module = require('module');
+const originalRequire = Module.prototype.require;
+Module.prototype.require = function(id) {
+  if (id === 'undici' || id.includes('undici')) {
+    console.log("🚫 undici 모듈 차단:", id);
+    throw new Error(`undici module blocked: ${id}`);
+  }
+  return originalRequire.apply(this, arguments);
+};
+
+// globalThis polyfill 강화
+if (typeof globalThis.File === 'undefined') {
   try {
-    // node:buffer에서 Blob 가져오기
     const { Blob } = require('node:buffer');
+    globalThis.Blob = Blob;
     
-    // Blob polyfill
-    if (typeof globalThis.Blob === 'undefined') {
-      globalThis.Blob = Blob;
-      console.log("✅ Blob polyfill 적용 완료");
-    }
+    globalThis.File = class File extends Blob {
+      constructor(chunks, filename, options = {}) {
+        super(chunks, options);
+        this.name = filename || '';
+        this.lastModified = options.lastModified || Date.now();
+      }
+    };
     
-    // File polyfill (Blob 상속)
-    if (typeof globalThis.File === 'undefined') {
-      globalThis.File = class File extends globalThis.Blob {
-        constructor(chunks, filename, options = {}) {
-          super(chunks, options);
-          this.name = filename || '';
-          this.lastModified = options.lastModified || Date.now();
-        }
-      };
-      console.log("✅ File polyfill 적용 완료");
-    }
-    
-    // 추가 polyfill들
-    if (typeof globalThis.FormData === 'undefined') {
-      const { FormData } = require('formdata-node');
-      globalThis.FormData = FormData;
-      console.log("✅ FormData polyfill 적용 완료");
-    }
-    
-    console.log("✅ 모든 polyfill 적용 완료 (Node.js 18 호환)");
+    console.log("✅ File/Blob polyfill 적용 완료");
   } catch (error) {
-    console.log("⚠️ Polyfill 적용 실패:", error.message);
-    console.log("🔄 대체 방법으로 진행...");
+    console.log("⚠️ File polyfill 실패:", error.message);
   }
 }
+
+if (typeof globalThis.FormData === 'undefined') {
+  try {
+    const { FormData } = require('formdata-node');
+    globalThis.FormData = FormData;
+    console.log("✅ FormData polyfill 적용 완료");
+  } catch (error) {
+    console.log("⚠️ FormData polyfill 실패:", error.message);
+  }
+}
+
+// polyfill 상태 확인
+console.log("🔍 Polyfill 상태:");
+console.log("  - File:", typeof globalThis.File !== 'undefined' ? "✅" : "❌");
+console.log("  - Blob:", typeof globalThis.Blob !== 'undefined' ? "✅" : "❌");
+console.log("  - FormData:", typeof globalThis.FormData !== 'undefined' ? "✅" : "❌");
 
 import express from "express";
 import cors from "cors";
@@ -156,79 +150,183 @@ async function refreshNaverCookie(forceUpdate = false) {
     return false;
   }
 
+  let browser = null;
+  let retryCount = 0;
+  const maxRetries = 3;
+
+  while (retryCount < maxRetries) {
   try {
-    cookieStatus.isUpdating = true;
-    console.log("🔄 자동 쿠키 갱신 시작...");
-    
-    const browser = await chromium.launch({
-      headless: true,
+      cookieStatus.isUpdating = true;
+      console.log(`🔄 자동 쿠키 갱신 시작... (시도 ${retryCount + 1}/${maxRetries})`);
+
+    browser = await chromium.launch({
+        headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
-      ]
-    });
-    
-    // User-Agent 로테이션 사용
-    const currentUserAgent = getNextUserAgent();
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-extensions',
+          '--disable-plugins',
+          '--disable-images',
+          '--disable-javascript-harmony-shipping'
+        ]
+      });
+      
+      // User-Agent 로테이션 사용
+      const currentUserAgent = getNextUserAgent();
 
     const context = await browser.newContext({
-      userAgent: currentUserAgent,
-      viewport: { width: 1920, height: 1080 }
-    });
-    
-    const page = await context.newPage();
-    
-    // 스마트스토어 메인 페이지 방문
-    await page.goto('https://smartstore.naver.com', { 
-      waitUntil: 'networkidle',
-      timeout: 30000 
-    });
-    
-    // 잠시 대기 (쿠키 설정 시간)
-    await page.waitForTimeout(3000);
-    
-    // document.cookie에서 쿠키 추출
-    const documentCookies = await page.evaluate(() => {
-      return document.cookie;
-    });
-    
-    // Playwright context에서도 쿠키 추출
-    const contextCookies = await context.cookies();
-    const contextCookieString = contextCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
-    
-    // 더 긴 쿠키 문자열 선택
-    const cookieString = documentCookies.length > contextCookieString.length ? documentCookies : contextCookieString;
-    
-    if (cookieString && cookieString.length > 10) {
-      NAVER_COOKIE = cookieString;
-      lastCookieUpdate = Date.now();
-      cookieStatus.lastUpdate = Date.now();
-      cookieStatus.updateCount++;
-      cookieStatus.lastError = null;
+        userAgent: currentUserAgent,
+        viewport: { width: 1920, height: 1080 },
+        locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul'
+      });
       
-      console.log("✅ 쿠키 자동 갱신 완료");
-      console.log(`📄 새 쿠키 길이: ${cookieString.length} 문자`);
-      console.log(`🔄 사용된 User-Agent: ${currentUserAgent.substring(0, 50)}...`);
+      const page = await context.newPage();
       
-      return true;
-    } else {
-      throw new Error("쿠키 추출 실패: 유효하지 않은 쿠키");
-    }
-    
-  } catch (error) {
-    cookieStatus.lastError = error.message;
-    console.log("❌ 쿠키 자동 갱신 실패:", error.message);
-    return false;
-  } finally {
-    cookieStatus.isUpdating = false;
-    if (browser) {
-      await browser.close();
+      // 자동화 감지 우회
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+      });
+      
+      console.log("🌐 네이버 스마트스토어 접속 중...");
+      
+      // 스마트스토어 메인 페이지 방문
+      await page.goto('https://smartstore.naver.com', { 
+        waitUntil: 'networkidle',
+        timeout: 30000 
+      });
+      
+      // 퀴즈/캡챠 감지 및 자동 해결
+      console.log("🔍 퀴즈/캡챠 감지 중...");
+      
+      try {
+        // 퀴즈 감지 (이미지 퀴즈, 캡챠 등)
+        const quizSelectors = [
+          '.quiz-container',
+          '.captcha-container', 
+          '.challenge-container',
+          '[data-testid="captcha"]',
+          '.security-check',
+          '.verification-container'
+        ];
+        
+        let quizDetected = false;
+        for (const selector of quizSelectors) {
+          const element = await page.$(selector);
+          if (element) {
+            console.log(`🎯 퀴즈 감지됨: ${selector}`);
+            quizDetected = true;
+            break;
+          }
+        }
+        
+        if (quizDetected) {
+          console.log("🤖 퀴즈 자동 해결 시도...");
+          
+          // 퀴즈 해결 시도 (간단한 퀴즈의 경우)
+          try {
+            // 퀴즈 버튼 클릭 시도
+            const quizButtons = await page.$$('button, input[type="button"], input[type="submit"]');
+            for (const button of quizButtons) {
+              const text = await button.textContent();
+              if (text && (text.includes('확인') || text.includes('다음') || text.includes('계속'))) {
+                await button.click();
+                await page.waitForTimeout(2000);
+                break;
+              }
+            }
+            
+            // 퀴즈 입력 필드가 있는 경우
+            const inputFields = await page.$$('input[type="text"], input[type="number"]');
+            if (inputFields.length > 0) {
+              // 간단한 패턴 입력 (예: 숫자, 문자)
+              const randomInput = Math.random().toString(36).substring(2, 8);
+              await inputFields[0].fill(randomInput);
+              await page.waitForTimeout(1000);
+              
+              // 제출 버튼 클릭
+              const submitButton = await page.$('button[type="submit"], input[type="submit"]');
+              if (submitButton) {
+                await submitButton.click();
+                await page.waitForTimeout(3000);
+              }
+            }
+            
+            console.log("✅ 퀴즈 해결 시도 완료");
+          } catch (quizError) {
+            console.log("⚠️ 퀴즈 해결 실패:", quizError.message);
+          }
+        }
+        
+        // 추가 대기 (쿠키 설정 시간)
+        await page.waitForTimeout(5000);
+        
+        // 페이지 상태 확인
+        const currentUrl = page.url();
+        console.log(`📍 현재 URL: ${currentUrl}`);
+        
+        // document.cookie에서 쿠키 추출
+        const documentCookies = await page.evaluate(() => {
+          return document.cookie;
+        });
+        
+        // Playwright context에서도 쿠키 추출
+        const contextCookies = await context.cookies();
+        const contextCookieString = contextCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+        
+        // 더 긴 쿠키 문자열 선택
+        const cookieString = documentCookies.length > contextCookieString.length ? documentCookies : contextCookieString;
+        
+        if (cookieString && cookieString.length > 10) {
+          NAVER_COOKIE = cookieString;
+          lastCookieUpdate = Date.now();
+          cookieStatus.lastUpdate = Date.now();
+          cookieStatus.updateCount++;
+          cookieStatus.lastError = null;
+          
+          console.log("✅ 쿠키 자동 갱신 완료");
+          console.log(`📄 새 쿠키 길이: ${cookieString.length} 문자`);
+          console.log(`🔄 사용된 User-Agent: ${currentUserAgent.substring(0, 50)}...`);
+          
+          return true;
+        } else {
+          throw new Error("쿠키 추출 실패: 유효하지 않은 쿠키");
+        }
+        
+      } catch (quizError) {
+        console.log("⚠️ 퀴즈 처리 중 오류:", quizError.message);
+        throw quizError;
+      }
+      
+    } catch (error) {
+      retryCount++;
+      console.log(`❌ 쿠키 갱신 실패 (시도 ${retryCount}/${maxRetries}):`, error.message);
+      
+      if (retryCount >= maxRetries) {
+        cookieStatus.lastError = error.message;
+        console.log("❌ 최대 재시도 횟수 초과");
+        return false;
+      }
+      
+      // 재시도 전 대기
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    } finally {
+      cookieStatus.isUpdating = false;
+      if (browser) {
+        await browser.close();
+        browser = null;
+      }
     }
   }
+  
+  return false;
 }
 
 // User-Agent 로테이션 함수
@@ -280,30 +378,7 @@ const getDefaultHeaders = (referer) => ({
 const cache = new Map();
 const CACHE_DURATION = 60000; // 60초
 
-// health check
-app.get("/api/health", (_req, res) => res.json({ 
-  ok: true, 
-  ts: Date.now(),
-  environment: process.env.NODE_ENV || 'development',
-  outdir: OUTDIR,
-  cookieSet: !!NAVER_COOKIE,
-  userAgentSet: !!NAVER_USER_AGENT,
-  acceptSet: !!NAVER_ACCEPT,
-  acceptLanguageSet: !!NAVER_ACCEPT_LANGUAGE,
-  port: process.env.PORT || 3000,
-  nodeVersion: process.version
-}));
-
-// root -> React 앱 또는 health check
-app.get("/", (_req, res) => {
-  if (fs.existsSync(buildPath)) {
-    res.sendFile(path.join(buildPath, "index.html"));
-  } else {
-    res.send("Server is running 🚀");
-  }
-});
-
-// Health check 엔드포인트
+// health check (통합된 강화 버전)
 app.get("/api/health", (_req, res) => {
   try {
     const now = Date.now();
@@ -312,6 +387,11 @@ app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      port: process.env.PORT || 3000,
+      nodeVersion: process.version,
+      platform: process.platform,
+      outdir: OUTDIR,
       cookie: {
         hasCookie: !!NAVER_COOKIE,
         cookieLength: NAVER_COOKIE ? NAVER_COOKIE.length : 0,
@@ -321,10 +401,20 @@ app.get("/api/health", (_req, res) => {
         isUpdating: cookieStatus.isUpdating,
         lastError: cookieStatus.lastError
       },
+      headers: {
+        userAgentSet: !!NAVER_USER_AGENT,
+        acceptSet: !!NAVER_ACCEPT,
+        acceptLanguageSet: !!NAVER_ACCEPT_LANGUAGE
+      },
       server: {
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        nodeVersion: process.version
+        pid: process.pid
+      },
+      polyfills: {
+        file: typeof globalThis.File !== 'undefined',
+        blob: typeof globalThis.Blob !== 'undefined',
+        formData: typeof globalThis.FormData !== 'undefined'
       }
     });
   } catch (error) {
@@ -335,6 +425,16 @@ app.get("/api/health", (_req, res) => {
     });
   }
 });
+
+// root -> React 앱 또는 health check
+app.get("/", (_req, res) => {
+  if (fs.existsSync(buildPath)) {
+    res.sendFile(path.join(buildPath, "index.html"));
+            } else {
+    res.send("Server is running 🚀");
+  }
+});
+
 
 /**
  * URL에서 productId 추출
@@ -350,10 +450,57 @@ function extractProductId(url) {
 }
 
 /**
+ * URL 벤더 판별 (네이버/쿠팡)
+ */
+function detectVendor(url) {
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+    
+    if (hostname.includes('smartstore.naver.com') || hostname.includes('naver.com')) {
+      return 'naver';
+    } else if (hostname.includes('coupang.com') || hostname.includes('www.coupang.com')) {
+      return 'coupang';
+    }
+    
+    return 'unknown';
+      } catch (e) {
+    console.log("❌ URL 벤더 판별 실패:", e.message);
+    return 'unknown';
+  }
+}
+
+/**
+ * 쿠팡 상품 ID 추출
+ */
+function extractCoupangProductId(url) {
+  try {
+    // 쿠팡 URL 패턴: /products/123456789 또는 /vp/products/123456789
+    const patterns = [
+      /\/products\/(\d+)/,
+      /\/vp\/products\/(\d+)/,
+      /productId=(\d+)/
+    ];
+    
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    
+    return null;
+              } catch (e) {
+    console.log("❌ 쿠팡 productId 추출 실패:", e.message);
+    return null;
+  }
+}
+
+/**
  * channelId 추출 (다중 방법 시도) - 강화된 디버깅
  */
 async function extractChannelId(url, debugInfo = {}) {
-  console.log("🔍 channelId 추출 시작...");
+  console.log("🔍 channelId 추출 시작 (3단계 강화)...");
   
   const triedMethods = [];
   const errors = [];
@@ -385,25 +532,43 @@ async function extractChannelId(url, debugInfo = {}) {
         const data = await apiResponse.json();
         console.log(`📄 API 응답 키들:`, Object.keys(data));
         
-        // 다양한 경로에서 channelId 찾기
+        // 다양한 경로에서 channelId 찾기 (확장된 패턴)
         let channelId = null;
+        const searchPaths = [
+          'channel.id',
+          'channelId', 
+          'channel.channelId',
+          'product.channelId',
+          'product.groupId',
+          'channel.groupId',
+          'mallId',
+          'channel.mallId'
+        ];
         
-        if (data.channel && data.channel.id) {
-          channelId = data.channel.id;
-        } else if (data.channelId) {
-          channelId = data.channelId;
-        } else if (data.channel && data.channel.channelId) {
-          channelId = data.channel.channelId;
-        } else if (data.product && data.product.channelId) {
-          channelId = data.product.channelId;
+        for (const path of searchPaths) {
+          const keys = path.split('.');
+          let value = data;
+          for (const key of keys) {
+            if (value && typeof value === 'object' && key in value) {
+              value = value[key];
+            } else {
+              value = null;
+              break;
+            }
+          }
+          if (value && typeof value === 'string' && value.length > 0) {
+            channelId = value;
+            console.log(`✅ API에서 channelId 발견 (${path}): ${channelId}`);
+            break;
+          }
         }
         
         if (channelId) {
-          console.log(`✅ API에서 channelId 발견: ${channelId}`);
           successMethod = "API";
           debugInfo.triedMethods = triedMethods;
           debugInfo.successMethod = successMethod;
           debugInfo.apiStatus = apiStatus;
+          debugInfo.apiResponse = { keys: Object.keys(data), sample: JSON.stringify(data).substring(0, 200) };
           return channelId;
         }
         
@@ -413,8 +578,8 @@ async function extractChannelId(url, debugInfo = {}) {
       } else {
         console.log(`⚠️ API 요청 실패: ${apiStatus}`);
         errors.push(`API 요청 실패: ${apiStatus}`);
-              }
-            } else {
+      }
+    } else {
       errors.push("productId 추출 실패");
     }
   } catch (apiError) {
@@ -449,14 +614,29 @@ async function extractChannelId(url, debugInfo = {}) {
       htmlChecked = { length: html.length, patterns: 0 };
       const $ = cheerio.load(html);
       
-      // 다양한 패턴으로 channelId 찾기
+      // 다양한 패턴으로 channelId 찾기 (확장된 패턴)
       const patterns = [
+        // JSON 패턴
         /"channelUid":"([a-zA-Z0-9_-]+)"/,
         /"channelId":"([a-zA-Z0-9_-]+)"/,
         /"channel":"([a-zA-Z0-9_-]+)"/,
+        /"mallId":"([a-zA-Z0-9_-]+)"/,
+        /"groupId":"([a-zA-Z0-9_-]+)"/,
+        
+        // URL 패턴
         /channels\/([a-zA-Z0-9_-]+)/,
         /channelUid=([a-zA-Z0-9_-]+)/,
-        /channelId=([a-zA-Z0-9_-]+)/
+        /channelId=([a-zA-Z0-9_-]+)/,
+        /mallId=([a-zA-Z0-9_-]+)/,
+        
+        // JavaScript 변수 패턴
+        /window\.__INITIAL_STATE__.*?"channelId":"([a-zA-Z0-9_-]+)"/,
+        /window\.__PRELOADED_STATE__.*?"channelId":"([a-zA-Z0-9_-]+)"/,
+        /window\.__APOLLO_STATE__.*?"channelId":"([a-zA-Z0-9_-]+)"/,
+        
+        // 메타 태그 패턴
+        /<meta[^>]*name="channelId"[^>]*content="([a-zA-Z0-9_-]+)"/,
+        /<meta[^>]*content="([a-zA-Z0-9_-]+)"[^>]*name="channelId"/
       ];
       
       let foundPatterns = 0;
@@ -551,7 +731,59 @@ async function extractChannelId(url, debugInfo = {}) {
   console.log("💡 해결 방법:");
   console.log("  1. Railway Variables에서 NAVER_COOKIE 갱신");
   console.log("  2. NAVER_USER_AGENT 최신 브라우저 값으로 업데이트");
-  console.log("  3. 간단한 URL로 테스트 (쿼리 파라미터 제거)");
+  // 3차 시도: URL에서 직접 추출 (fallback)
+  try {
+    console.log("🔄 3차 시도: URL에서 channelId 추출");
+    triedMethods.push("URL");
+    
+    const urlObj = new URL(url);
+    urlPatterns = { searchParams: [], pathname: urlObj.pathname };
+    
+    // 쿼리 파라미터에서 찾기
+    const queryParams = ['channelId', 'channelUid', 'mallId', 'channel', 'groupId'];
+    for (const param of queryParams) {
+      const value = urlObj.searchParams.get(param);
+      if (value && value.length > 0) {
+        console.log(`✅ URL에서 channelId 발견 (${param}): ${value}`);
+        successMethod = "URL";
+        debugInfo.triedMethods = triedMethods;
+        debugInfo.successMethod = successMethod;
+        debugInfo.urlPatterns = { ...urlPatterns, foundParam: param, foundValue: value };
+        return value;
+      }
+    }
+    
+    // 경로에서 찾기
+    const pathPatterns = [
+      /\/channels\/([a-zA-Z0-9_-]+)/,
+      /\/mall\/([a-zA-Z0-9_-]+)/,
+      /\/store\/([a-zA-Z0-9_-]+)/
+    ];
+    
+    for (const pattern of pathPatterns) {
+      const match = urlObj.pathname.match(pattern);
+      if (match && match[1]) {
+        console.log(`✅ URL 경로에서 channelId 발견: ${match[1]}`);
+        successMethod = "URL";
+        debugInfo.triedMethods = triedMethods;
+        debugInfo.successMethod = successMethod;
+        debugInfo.urlPatterns = { ...urlPatterns, foundPattern: pattern.toString(), foundValue: match[1] };
+        return match[1];
+      }
+    }
+    
+    console.log("⚠️ URL에서 channelId를 찾을 수 없습니다.");
+    errors.push("URL에서 channelId 없음");
+    
+  } catch (urlError) {
+    console.log("❌ URL 파싱 실패:", urlError.message);
+    errors.push(`URL 파싱 실패: ${urlError.message}`);
+  }
+  
+  console.log("❌ 모든 방법으로 channelId 추출 실패");
+  console.log("  1. API 요청 실패 또는 응답에 channelId 없음");
+  console.log("  2. HTML 파싱에서 패턴 매칭 실패");
+  console.log("  3. URL에서 직접 추출 실패");
   
   // debug 정보 저장
   debugInfo.triedMethods = triedMethods;
@@ -561,7 +793,171 @@ async function extractChannelId(url, debugInfo = {}) {
   debugInfo.htmlChecked = htmlChecked;
   debugInfo.urlPatterns = urlPatterns;
   
-  return null;
+        return null;
+      }
+
+/**
+ * 쿠팡 상품 정보 추출
+ */
+async function extractCoupangProduct(url, debugInfo = {}) {
+  console.log("🛒 쿠팡 상품 정보 추출 시작...");
+  
+  const debug = {
+    steps: [],
+    errors: [],
+    endpoints: []
+  };
+  
+  try {
+    const productId = extractCoupangProductId(url);
+    if (!productId) {
+      debug.errors.push("쿠팡 productId 추출 실패");
+      return { success: false, debug };
+    }
+    
+    debug.steps.push({ step: "productId 추출", success: true, value: productId });
+    
+    // 쿠팡 전용 헤더 설정
+    const coupangHeaders = {
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'referer': 'https://www.coupang.com/',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'upgrade-insecure-requests': '1'
+    };
+    
+    debug.steps.push({ step: "쿠팡 페이지 요청", success: true });
+    
+    // 1차 시도: 페이지 HTML에서 추출
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: coupangHeaders,
+      ...fetchOptions
+    });
+    
+    debug.endpoints.push({
+      url: url,
+      status: response.status,
+      method: "GET"
+    });
+    
+    if (response.status === 200) {
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      
+      debug.steps.push({ step: "HTML 파싱", success: true, length: html.length });
+      
+      // 상품 정보 추출
+      const product = {
+        name: null,
+        price: null,
+        images: [],
+        description: null,
+        vendor: "coupang"
+      };
+      
+      // 상품명 추출
+      const nameSelectors = [
+        '.prod-buy-header__title',
+        '.product-title',
+        'h1[data-testid="product-title"]',
+        '.product-name'
+      ];
+      
+      for (const selector of nameSelectors) {
+        const nameElement = $(selector);
+        if (nameElement.length > 0) {
+          product.name = nameElement.text().trim();
+          break;
+        }
+      }
+      
+      // 가격 추출
+      const priceSelectors = [
+        '.total-price strong',
+        '.price-value',
+        '[data-testid="price"]',
+        '.product-price'
+      ];
+      
+      for (const selector of priceSelectors) {
+        const priceElement = $(selector);
+        if (priceElement.length > 0) {
+          const priceText = priceElement.text().replace(/[^\d]/g, '');
+          if (priceText) {
+            product.price = parseInt(priceText);
+            break;
+          }
+        }
+      }
+      
+      // 이미지 추출
+      const imageSelectors = [
+        '.prod-image__detail img',
+        '.product-image img',
+        '[data-testid="product-image"] img'
+      ];
+      
+      for (const selector of imageSelectors) {
+        const images = $(selector);
+        if (images.length > 0) {
+          images.each((i, img) => {
+            const src = $(img).attr('src') || $(img).attr('data-src');
+            if (src && !src.includes('placeholder')) {
+              product.images.push(src);
+            }
+          });
+          break;
+        }
+      }
+      
+      // 상세 설명 추출
+      const descSelectors = [
+        '.prod-description',
+        '.product-description',
+        '[data-testid="product-description"]'
+      ];
+      
+      for (const selector of descSelectors) {
+        const descElement = $(selector);
+        if (descElement.length > 0) {
+          product.description = descElement.text().trim();
+          break;
+        }
+      }
+      
+      debug.steps.push({ 
+        step: "상품 정보 추출", 
+        success: true, 
+        extracted: {
+          name: !!product.name,
+          price: !!product.price,
+          images: product.images.length,
+          description: !!product.description
+        }
+      });
+      
+      return {
+        success: true,
+        product,
+        reviews: [], // 쿠팡 리뷰는 별도 API 필요
+        qnas: [],   // 쿠팡 Q&A는 별도 API 필요
+        debug
+      };
+      
+    } else {
+      debug.errors.push(`쿠팡 페이지 요청 실패: ${response.status}`);
+      return { success: false, debug };
+    }
+    
+  } catch (error) {
+    console.log("❌ 쿠팡 상품 추출 실패:", error.message);
+    debug.errors.push(`쿠팡 상품 추출 실패: ${error.message}`);
+    return { success: false, debug };
+  }
 }
 
 /**
@@ -664,7 +1060,7 @@ async function getReviews(productId, channelId, originalUrl) {
           ...fetchOptions
         });
       }
-    } catch (e) {
+      } catch (e) {
       throw e;
     }
     
@@ -776,12 +1172,15 @@ app.post("/api/extract", async (req, res) => {
     });
   }
 
-  console.log("🚀 네이버 스마트스토어 크롤링 시작:", url);
+  // 벤더 판별
+  const vendor = detectVendor(url);
+  console.log(`🚀 ${vendor} 크롤링 시작:`, url);
 
   // 응답 데이터 구조
   const response = {
     ok: false,
     inputUrl: url,
+    vendor: vendor,
     productId: null,
     channelId: null,
     product: {},
@@ -790,13 +1189,42 @@ app.post("/api/extract", async (req, res) => {
     debug: {
       endpoints: [],
       errors: [],
-      cacheHit: false
+      cacheHit: false,
+      steps: []
     },
     durationMs: null,
     error: null
   };
 
   try {
+    // 쿠팡 처리
+    if (vendor === 'coupang') {
+      console.log("🛒 쿠팡 상품 처리 시작...");
+      const coupangResult = await extractCoupangProduct(url, response.debug);
+      
+      if (coupangResult.success) {
+        response.ok = true;
+        response.product = coupangResult.product;
+        response.reviews = coupangResult.reviews;
+        response.qnas = coupangResult.qnas;
+        response.debug = { ...response.debug, ...coupangResult.debug };
+        response.durationMs = Date.now() - t0;
+        return res.status(200).json(response);
+      } else {
+        response.error = "쿠팡 상품 추출 실패";
+        response.debug = { ...response.debug, ...coupangResult.debug };
+        response.durationMs = Date.now() - t0;
+        return res.status(200).json(response);
+      }
+    }
+    
+    // 네이버 처리 (기존 로직)
+    if (vendor !== 'naver') {
+      response.error = "지원하지 않는 벤더입니다. (naver, coupang만 지원)";
+      response.debug.errors.push(`지원하지 않는 벤더: ${vendor}`);
+      return res.status(200).json(response);
+    }
+
     // 1. productId 추출
     console.log("🔍 productId 추출 중...");
     const productId = extractProductId(url);
