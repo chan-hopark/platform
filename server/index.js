@@ -63,48 +63,108 @@ console.log("  - FormData:", typeof globalThis.FormData !== 'undefined' ? "✅" 
 // 안전한 모듈 import
 let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch, chromium;
 
+console.log("📦 모듈 로딩 시작...");
+
 try {
-  console.log("📦 모듈 로딩 시작...");
-  
   const expressModule = await import("express");
   express = expressModule.default;
-  
-  const corsModule = await import("cors");
-  cors = corsModule.default;
-  
-  const fsModule = await import("fs");
-  fs = fsModule.default;
-  
-  const pathModule = await import("path");
-  path = pathModule.default;
-  
-  const axiosModule = await import("axios");
-  axios = axiosModule.default;
-  
-  const cheerioModule = await import("cheerio");
-  cheerio = cheerioModule;
-  
-  const urlModule = await import("url");
-  fileURLToPath = urlModule.fileURLToPath;
-  
-  const httpModule = await import("http");
-  http = httpModule.default;
-  
-  const httpsModule = await import("https");
-  https = httpsModule.default;
-  
-  const fetchModule = await import("node-fetch");
-  fetch = fetchModule.default;
-  
-  const playwrightModule = await import("playwright");
-  chromium = playwrightModule.chromium;
-  
-  console.log("✅ 모든 모듈 로딩 완료");
+  console.log("✅ express 로딩 완료");
 } catch (error) {
-  console.error("❌ 모듈 로딩 실패:", error.message);
-  console.error("❌ 에러 스택:", error.stack);
+  console.error("❌ express 로딩 실패:", error.message);
   process.exit(1);
 }
+
+try {
+  const corsModule = await import("cors");
+  cors = corsModule.default;
+  console.log("✅ cors 로딩 완료");
+} catch (error) {
+  console.error("❌ cors 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const fsModule = await import("fs");
+  fs = fsModule.default;
+  console.log("✅ fs 로딩 완료");
+} catch (error) {
+  console.error("❌ fs 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const pathModule = await import("path");
+  path = pathModule.default;
+  console.log("✅ path 로딩 완료");
+} catch (error) {
+  console.error("❌ path 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const axiosModule = await import("axios");
+  axios = axiosModule.default;
+  console.log("✅ axios 로딩 완료");
+} catch (error) {
+  console.error("❌ axios 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const cheerioModule = await import("cheerio");
+  cheerio = cheerioModule;
+  console.log("✅ cheerio 로딩 완료");
+} catch (error) {
+  console.error("❌ cheerio 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const urlModule = await import("url");
+  fileURLToPath = urlModule.fileURLToPath;
+  console.log("✅ url 로딩 완료");
+} catch (error) {
+  console.error("❌ url 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const httpModule = await import("http");
+  http = httpModule.default;
+  console.log("✅ http 로딩 완료");
+} catch (error) {
+  console.error("❌ http 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const httpsModule = await import("https");
+  https = httpsModule.default;
+  console.log("✅ https 로딩 완료");
+} catch (error) {
+  console.error("❌ https 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const fetchModule = await import("node-fetch");
+  fetch = fetchModule.default;
+  console.log("✅ node-fetch 로딩 완료");
+} catch (error) {
+  console.error("❌ node-fetch 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+try {
+  const playwrightModule = await import("playwright");
+  chromium = playwrightModule.chromium;
+  console.log("✅ playwright 로딩 완료");
+} catch (error) {
+  console.error("❌ playwright 로딩 실패:", error.message);
+  process.exit(1);
+}
+
+console.log("✅ 모든 모듈 로딩 완료");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1435,21 +1495,15 @@ const startServer = () => {
 // Railway 환경에서 안전한 시작
 console.log("🚀 서버 시작 프로세스 시작...");
 
-try {
-  // 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
-  const server = startServer();
-  
-  // 백그라운드에서 쿠키 갱신 (서버 시작 후 - 더 늦게)
-  setTimeout(async () => {
-    try {
-      console.log("🔄 서버 시작 후 쿠키 갱신...");
-      await refreshNaverCookie(true);
-    } catch (error) {
-      console.log("⚠️ 쿠키 갱신 실패:", error.message);
-    }
-  }, 15000); // 15초 후 실행 (헬스체크 통과 후)
-  
-} catch (error) {
-  console.error("❌ 서버 시작 실패:", error);
-  process.exit(1);
-}
+// 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
+const server = startServer();
+
+// 백그라운드에서 쿠키 갱신 (서버 시작 후 - 더 늦게)
+setTimeout(async () => {
+  try {
+    console.log("🔄 서버 시작 후 쿠키 갱신...");
+    await refreshNaverCookie(true);
+  } catch (error) {
+    console.log("⚠️ 쿠키 갱신 실패:", error.message);
+  }
+}, 30000); // 30초 후 실행 (서버 안정화 후)
