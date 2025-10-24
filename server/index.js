@@ -1,28 +1,7 @@
 #!/usr/bin/env node
 
-// 쿠팡 전용 크롤러 서버
+// 쿠팡 상품 크롤러 서버
 console.log("🚀 쿠팡 크롤러 서버 시작...");
-
-// Polyfill 설정 (Node.js 18 호환성)
-if (typeof globalThis.File === 'undefined') {
-  const { File } = await import('node:buffer');
-  globalThis.File = File;
-}
-
-if (typeof globalThis.Blob === 'undefined') {
-  const { Blob } = await import('node:buffer');
-  globalThis.Blob = Blob;
-}
-
-if (typeof globalThis.FormData === 'undefined') {
-  const { FormData } = await import('formdata-node');
-  globalThis.FormData = FormData;
-}
-
-console.log("🔍 Polyfill 상태:");
-console.log("  - File:", typeof globalThis.File !== 'undefined' ? "✅" : "❌");
-console.log("  - Blob:", typeof globalThis.Blob !== 'undefined' ? "✅" : "❌");
-console.log("  - FormData:", typeof globalThis.FormData !== 'undefined' ? "✅" : "❌");
 
 // 안전한 모듈 import
 let express, cors, fs, path, axios, cheerio, fileURLToPath, http, https, fetch;
@@ -124,7 +103,7 @@ console.log("✅ 모든 모듈 로딩 완료");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 환경변수 로딩 확인
+// 환경변수 확인
 console.log("🔧 환경변수 확인:");
 console.log("  - NODE_ENV:", process.env.NODE_ENV || "development");
 console.log("  - PORT:", process.env.PORT || "3000");

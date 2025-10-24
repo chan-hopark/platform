@@ -41,37 +41,7 @@ const HomePage = () => {
         if (data.vendor === 'naver') {
           setError('🚧 네이버 스마트스토어 서비스는 준비중입니다.\n\n현재 쿠팡 상품만 지원합니다.\n쿠팡 상품 URL을 입력해주세요.');
         } else {
-          // 백엔드에서 오는 상세한 에러 정보 표시
-          let errorMessage = data.error || '데이터 추출에 실패했습니다.';
-          
-          // debug 정보가 있으면 추가
-          if (data.debug) {
-            if (data.debug.errors && data.debug.errors.length > 0) {
-              errorMessage += '\n\n상세 오류:';
-              data.debug.errors.forEach(err => {
-                errorMessage += `\n• ${err}`;
-              });
-            }
-            
-            if (data.debug.steps && data.debug.steps.length > 0) {
-              errorMessage += '\n\n처리 단계:';
-              data.debug.steps.forEach(step => {
-                const status = step.success ? '✅' : '❌';
-                errorMessage += `\n${status} ${step.step}`;
-                if (step.value) errorMessage += ` (${step.value})`;
-              });
-            }
-            
-            if (data.debug.endpoints && data.debug.endpoints.length > 0) {
-              errorMessage += '\n\nAPI 호출:';
-              data.debug.endpoints.forEach(endpoint => {
-                const status = endpoint.status === 200 ? '✅' : '❌';
-                errorMessage += `\n${status} ${endpoint.method} ${endpoint.url} (${endpoint.status})`;
-              });
-            }
-          }
-          
-          setError(errorMessage);
+          setError(data.error || '데이터 추출에 실패했습니다.');
         }
       }
     } catch (error) {
@@ -227,46 +197,6 @@ const HomePage = () => {
                     <p><strong>Product ID:</strong> {result.productId}</p>
                     <p><strong>캐시 사용:</strong> {result.debug.cacheHit ? '✅' : '❌'}</p>
                     <p><strong>처리 시간:</strong> {result.durationMs}ms</p>
-                    
-                    {result.debug.steps && result.debug.steps.length > 0 && (
-                      <div className="mt-2">
-                        <strong>처리 단계:</strong>
-                        <ul className="ml-4 space-y-1">
-                          {result.debug.steps.map((step, index) => (
-                            <li key={index} className="flex items-center">
-                              <span className={`w-2 h-2 rounded-full mr-2 ${step.success ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                              {step.step}
-                              {step.value && <span className="text-blue-600 ml-2">({step.value})</span>}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {result.debug.endpoints && result.debug.endpoints.length > 0 && (
-                      <div className="mt-2">
-                        <strong>API 엔드포인트:</strong>
-                        <ul className="ml-4 space-y-1">
-                          {result.debug.endpoints.map((endpoint, index) => (
-                            <li key={index} className="flex items-center">
-                              <span className={`w-2 h-2 rounded-full mr-2 ${endpoint.status === 200 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                              {endpoint.method} {endpoint.url} ({endpoint.status})
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {result.debug.errors && result.debug.errors.length > 0 && (
-                      <div className="mt-2">
-                        <strong>오류:</strong>
-                        <ul className="ml-4 space-y-1">
-                          {result.debug.errors.map((error, index) => (
-                            <li key={index} className="text-red-600">• {error}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}

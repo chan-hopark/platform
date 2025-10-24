@@ -1,5 +1,5 @@
 {
-  "name": "playwright-crawler",
+  "name": "coupang-crawler",
   "version": "1.0.0",
   "type": "module",
   "main": "server/index.js",
@@ -9,13 +9,11 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "dev": "HEADLESS=false node server/index.js",
+    "dev": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "test:extract": "node scripts/test-extract.js",
-    "test:health": "curl http://localhost:3000/api/health",
-    "docker:build": "docker build -t coupang-crawler .",
-    "docker:run": "docker run -p 3000:3000 coupang-crawler"
+    "test:health": "curl http://localhost:3000/api/health"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -23,17 +21,10 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "formdata-node": "^4.3.4",
-    "http-proxy-middleware": "^2.0.6",
     "node-fetch": "^3.3.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0"
-  },
-  "overrides": {
-    "undici": "npm:@types/node@^20.0.0"
-  },
-  "resolutions": {
-    "undici": "npm:@types/node@^20.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.0.28",

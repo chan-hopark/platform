@@ -1,14 +1,11 @@
 # 쿠팡 상품 크롤러 Dockerfile
 FROM node:20-slim
 
-# 시스템 의존성 설치 (최소한으로)
+# 기본 유틸리티 설치
 RUN apt-get update && apt-get install -y \
-    # 기본 유틸리티
     wget \
-    gnupg \
-    ca-certificates \
     curl \
-    build-essential \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
