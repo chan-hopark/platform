@@ -397,44 +397,15 @@ const getDefaultHeaders = (referer) => ({
 const cache = new Map();
 const CACHE_DURATION = 60000; // 60초
 
-// health check (통합된 강화 버전)
+// health check (Railway 최적화 버전)
 app.get("/api/health", (_req, res) => {
   try {
-    const now = Date.now();
-    const timeSinceLastUpdate = now - cookieStatus.lastUpdate;
-    
+    // 빠른 응답을 위한 최소한의 정보만
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      port: process.env.PORT || 3000,
-      nodeVersion: process.version,
-      platform: process.platform,
-      outdir: OUTDIR,
-      cookie: {
-        hasCookie: !!NAVER_COOKIE,
-        cookieLength: NAVER_COOKIE ? NAVER_COOKIE.length : 0,
-        lastUpdate: cookieStatus.lastUpdate ? new Date(cookieStatus.lastUpdate).toISOString() : null,
-        timeSinceLastUpdate: Math.floor(timeSinceLastUpdate / 1000 / 60), // 분 단위
-        updateCount: cookieStatus.updateCount,
-        isUpdating: cookieStatus.isUpdating,
-        lastError: cookieStatus.lastError
-      },
-      headers: {
-        userAgentSet: !!NAVER_USER_AGENT,
-        acceptSet: !!NAVER_ACCEPT,
-        acceptLanguageSet: !!NAVER_ACCEPT_LANGUAGE
-      },
-      server: {
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        pid: process.pid
-      },
-      polyfills: {
-        file: typeof globalThis.File !== 'undefined',
-        blob: typeof globalThis.Blob !== 'undefined',
-        formData: typeof globalThis.FormData !== 'undefined'
-      }
+      uptime: process.uptime(),
+      port: process.env.PORT || 3000
     });
   } catch (error) {
     res.status(500).json({
@@ -1422,8 +1393,6 @@ const startServer = () => {
   try {
     console.log("🔄 서버 시작 중...");
     console.log(`📍 포트: ${PORT}`);
-    console.log(`🌍 환경: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔧 Node.js 버전: ${process.version}`);
     
     // 포트 바인딩 전 확인
     if (!PORT || isNaN(PORT)) {
@@ -1434,29 +1403,19 @@ const startServer = () => {
     console.log("🔗 포트 바인딩 시도 중...");
     
     const server = app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 네이버 스마트스토어 크롤러 서버 실행 중`);
-      console.log(`📍 바인딩된 포트: ${PORT}`);
-      console.log(`📁 디버그 디렉토리: ${OUTDIR}`);
-      console.log(`📦 빌드 경로: ${buildPath}`);
-      console.log(`🍪 쿠키 설정: ${NAVER_COOKIE ? '✅ 설정됨' : '❌ 미설정'}`);
-      console.log(`🌐 File polyfill: ${typeof globalThis.File !== 'undefined' ? '✅ 적용됨' : '❌ 미적용'}`);
-      console.log(`✅ 서버 준비 완료! Railway에서 접근 가능합니다.`);
+      console.log(`🚀 서버 실행 중 - 포트: ${PORT}`);
+      console.log(`✅ Railway 헬스체크 준비 완료!`);
     });
     
     // 서버 에러 핸들링
     server.on('error', (error) => {
       console.error("❌ 서버 에러:", error);
-      if (error.code === 'EADDRINUSE') {
-        console.error(`❌ 포트 ${PORT}가 이미 사용 중입니다.`);
-      } else if (error.code === 'EACCES') {
-        console.error(`❌ 포트 ${PORT}에 대한 권한이 없습니다.`);
-      }
       process.exit(1);
     });
     
     // 연결 확인
     server.on('listening', () => {
-      console.log(`✅ 서버가 포트 ${PORT}에서 정상적으로 리스닝 중입니다.`);
+      console.log(`✅ 서버가 포트 ${PORT}에서 리스닝 중`);
     });
     
     // Graceful shutdown
@@ -1468,17 +1427,8 @@ const startServer = () => {
       });
     });
     
-    process.on('SIGINT', () => {
-      console.log('🔄 SIGINT 신호 수신, 서버 종료 중...');
-      server.close(() => {
-        console.log('✅ 서버 종료 완료');
-        process.exit(0);
-      });
-    });
-    
   } catch (error) {
     console.error("❌ 서버 시작 실패:", error);
-    console.error("❌ 에러 스택:", error.stack);
     process.exit(1);
   }
 };
@@ -1489,7 +1439,7 @@ console.log("🚀 서버 시작 프로세스 시작...");
 // 즉시 서버 시작 (Railway에서 빠른 응답을 위해)
 startServer();
 
-// 백그라운드에서 쿠키 갱신 (서버 시작 후)
+// 백그라운드에서 쿠키 갱신 (서버 시작 후 - 더 늦게)
 setTimeout(async () => {
   try {
     console.log("🔄 서버 시작 후 쿠키 갱신...");
@@ -1497,4 +1447,4 @@ setTimeout(async () => {
   } catch (error) {
     console.log("⚠️ 쿠키 갱신 실패:", error.message);
   }
-}, 5000); // 5초 후 실행
+}, 15000); // 15초 후 실행 (헬스체크 통과 후)
