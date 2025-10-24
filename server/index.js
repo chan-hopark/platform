@@ -107,6 +107,8 @@ const __dirname = path.dirname(__filename);
 console.log("🔧 환경변수 확인:");
 console.log("  - NODE_ENV:", process.env.NODE_ENV || "development");
 console.log("  - PORT:", process.env.PORT || "3000");
+console.log("  - COUPANG_API_KEY:", process.env.COUPANG_API_KEY ? "설정됨" : "미설정");
+console.log("  - COUPANG_SECRET_KEY:", process.env.COUPANG_SECRET_KEY ? "설정됨" : "미설정");
 
 const PORT = process.env.PORT || 3000;
 
@@ -151,6 +153,26 @@ const axiosInstance = axios.create({
 const cache = new Map();
 const CACHE_DURATION = 60 * 1000; // 1분
 
+// 쿠팡 API 인증 함수
+const generateCoupangAuth = (method, path, body = '') => {
+  const crypto = require('crypto');
+  const apiKey = process.env.COUPANG_API_KEY;
+  const secretKey = process.env.COUPANG_SECRET_KEY;
+  
+  if (!apiKey || !secretKey) {
+    throw new Error('쿠팡 API 키가 설정되지 않았습니다.');
+  }
+  
+  const timestamp = new Date().toISOString();
+  const message = timestamp + method + path + body;
+  const signature = crypto.createHmac('sha256', secretKey).update(message).digest('hex');
+  
+  return {
+    'Authorization': `CEA algorithm=HmacSHA256, access-key=${apiKey}, signed-date=${timestamp}, signature=${signature}`,
+    'Content-Type': 'application/json;charset=UTF-8'
+  };
+};
+
 // 벤더 감지 함수
 const detectVendor = (url) => {
   if (url.includes('smartstore.naver.com')) {
@@ -176,12 +198,57 @@ const extractCoupangProductId = (url) => {
   }
 };
 
-// 쿠팡 상품 정보 추출 (웹 스크래핑)
+// 쿠팡 공개 API 호출 (인증 불필요)
+const searchCoupangProductPublic = async (keyword) => {
+  try {
+    console.log("🔄 쿠팡 공개 API 호출...");
+    
+    // 쿠팡 공개 검색 API (인증 불필요)
+    const response = await axiosInstance.get(`https://www.coupang.com/np/search?q=${encodeURIComponent(keyword)}`, {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 10000
+    });
+    
+    console.log("✅ 쿠팡 공개 API 호출 완료");
+    return response.data;
+    
+  } catch (error) {
+    console.error("❌ 쿠팡 공개 API 호출 실패:", error.message);
+    throw error;
+  }
+};
+
+// 쿠팡 상품 상세 정보 API 호출
+const getCoupangProductDetail = async (productId) => {
+  try {
+    console.log("🔄 쿠팡 상품 상세 정보 API 호출...");
+    
+    const path = `/v2/providers/affiliate_open_api/apis/openapi/products/${productId}`;
+    
+    const authHeaders = generateCoupangAuth('GET', path);
+    
+    const response = await axiosInstance.get(`https://api-gateway.coupang.com${path}`, {
+      headers: authHeaders,
+      timeout: 10000
+    });
+    
+    console.log("✅ 쿠팡 상품 상세 정보 API 호출 완료");
+    return response.data;
+    
+  } catch (error) {
+    console.error("❌ 쿠팡 상품 상세 정보 API 호출 실패:", error.message);
+    throw error;
+  }
+};
+
+// 쿠팡 상품 정보 추출 (개선된 방법)
 const extractCoupangProduct = async (url) => {
   try {
     console.log("🔄 쿠팡 상품 정보 추출 시작...");
     
-    // Referer 헤더 추가
     const response = await axiosInstance.get(url, {
       headers: {
         'Referer': 'https://www.coupang.com/',
@@ -191,27 +258,75 @@ const extractCoupangProduct = async (url) => {
     
     const $ = cheerio.load(response.data);
     
-    // 상품명 추출 (더 많은 셀렉터 시도)
+    // 1. 페이지 내 JSON 데이터 추출 시도
+    let jsonData = null;
+    try {
+      // window.__INITIAL_STATE__ 또는 window.__APOLLO_STATE__ 찾기
+      const scriptTags = $('script').toArray();
+      for (const script of scriptTags) {
+        const content = $(script).html();
+        if (content && content.includes('__INITIAL_STATE__')) {
+          const match = content.match(/window\.__INITIAL_STATE__\s*=\s*({.*?});/);
+          if (match) {
+            jsonData = JSON.parse(match[1]);
+            console.log("📦 JSON 데이터 발견:", Object.keys(jsonData));
+            break;
+          }
+        }
+      }
+    } catch (jsonError) {
+      console.log("⚠️ JSON 데이터 파싱 실패:", jsonError.message);
+    }
+    
+    // 2. JSON 데이터에서 상품 정보 추출
+    if (jsonData) {
+      try {
+        // JSON 구조에 따라 상품 정보 추출
+        const productInfo = jsonData.product || jsonData.productInfo || jsonData;
+        
+        if (productInfo) {
+          return {
+            name: productInfo.productName || productInfo.name || productInfo.title || '상품명 없음',
+            price: productInfo.salePrice || productInfo.price || productInfo.originalPrice || '0',
+            images: productInfo.images || productInfo.imageUrls || [],
+            description: productInfo.description || productInfo.detailContent || '',
+            brand: productInfo.brand || productInfo.brandName || '',
+            category: productInfo.category || productInfo.categoryName || '',
+            url: url,
+            source: 'json'
+          };
+        }
+      } catch (jsonParseError) {
+        console.log("⚠️ JSON 상품 정보 추출 실패:", jsonParseError.message);
+      }
+    }
+    
+    // 3. JSON 데이터가 없거나 실패한 경우 HTML 파싱
+    console.log("🌐 HTML 파싱 사용");
+    
+    // 상품명 추출 (더 많은 셀렉터)
     const productName = $('h1.prod-buy-header__title').text().trim() || 
                        $('.prod-buy-header__title').text().trim() ||
                        $('h1.prod-buy-header__title').text().trim() ||
                        $('.product-title').text().trim() ||
                        $('h1').first().text().trim() ||
+                       $('meta[property="og:title"]').attr('content') ||
                        '상품명을 찾을 수 없습니다';
     
-    // 가격 추출 (더 많은 셀렉터 시도)
+    // 가격 추출 (더 많은 셀렉터)
     const priceText = $('.total-price strong').text().trim() ||
                      $('.prod-price .total-price').text().trim() ||
                      $('.total-price').text().trim() ||
                      $('.price').first().text().trim() ||
                      $('.sale-price').text().trim() ||
+                     $('.prod-price').text().trim() ||
                      '0';
     
     const price = priceText.replace(/[^\d]/g, '') || '0';
     
-    // 이미지 추출
+    // 이미지 추출 (더 많은 셀렉터)
     const images = [];
-    $('.prod-image img, .image img, .product-image img').each((i, el) => {
+    $('.prod-image img, .image img, .product-image img, .prod-img img').each((i, el) => {
       const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy');
       if (src && !src.includes('placeholder') && !src.includes('blank')) {
         const fullSrc = src.startsWith('http') ? src : `https:${src}`;
@@ -247,11 +362,12 @@ const extractCoupangProduct = async (url) => {
     return {
       name: productName,
       price: price,
-      images: images.slice(0, 10), // 최대 10개 이미지
+      images: images.slice(0, 10),
       description: description,
       brand: brand,
       category: category,
-      url: url
+      url: url,
+      source: 'html'
     };
     
   } catch (error) {
