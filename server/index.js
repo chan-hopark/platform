@@ -273,19 +273,59 @@ const extractCoupangProductWithPlaywright = async (url) => {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-http2',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-web-security',
+        '--disable-features=TranslateUI',
+        '--disable-ipc-flooding-protection',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
       ]
     });
 
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1920, height: 1080 }
+      viewport: { width: 1920, height: 1080 },
+      ignoreHTTPSErrors: true,
+      extraHTTPHeaders: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
     });
     
     const page = await context.newPage();
     
     console.log("🌐 쿠팡 페이지 로딩...");
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    
+    // HTTP/2 에러 방지를 위한 재시도 로직
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        await page.goto(url, { 
+          waitUntil: 'domcontentloaded', 
+          timeout: 20000 
+        });
+        console.log("✅ 페이지 로딩 성공");
+        break;
+      } catch (error) {
+        retryCount++;
+        console.log(`⚠️ 페이지 로딩 실패 (${retryCount}/${maxRetries}):`, error.message);
+        
+        if (retryCount >= maxRetries) {
+          throw new Error(`페이지 로딩 실패: ${error.message}`);
+        }
+        
+        // 잠시 대기 후 재시도
+        await page.waitForTimeout(2000);
+      }
+    }
     
     // 페이지 로딩 대기
     await page.waitForTimeout(3000);
@@ -419,18 +459,24 @@ const extractCoupangProductWithPlaywright = async (url) => {
   }
 };
 
-// 쿠팡 상품 정보 추출 (Playwright 우선)
+// 쿠팡 상품 정보 추출 (Playwright 우선, 에러 시 폴백)
 const extractCoupangProduct = async (url) => {
   try {
     console.log("🔄 쿠팡 상품 정보 추출 시작...");
     
     // Playwright가 있으면 우선 사용
     if (chromium) {
-      console.log("🎭 Playwright 크롤링 사용");
-      return await extractCoupangProductWithPlaywright(url);
+      try {
+        console.log("🎭 Playwright 크롤링 사용");
+        return await extractCoupangProductWithPlaywright(url);
+      } catch (playwrightError) {
+        console.error("❌ Playwright 크롤링 실패:", playwrightError.message);
+        console.log("🔄 HTML 파싱으로 폴백...");
+        // Playwright 실패 시 HTML 파싱으로 폴백
+      }
     }
     
-    // Playwright가 없으면 기존 HTML 파싱 사용
+    // Playwright가 없거나 실패한 경우 HTML 파싱 사용
     console.log("🌐 HTML 파싱 사용");
     
     const response = await axiosInstance.get(url, {
